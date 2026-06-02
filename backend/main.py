@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth.router import router as auth_router
+from backend.workflow.planner.router import router as planner_router
 from backend.core.config import get_settings
 from backend.core.redis import close_redis
 
@@ -47,6 +48,7 @@ app.add_middleware(
 # Routers
 # ---------------------------------------------------------------------------
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(planner_router, prefix="/api/v1")
 
 
 # ---------------------------------------------------------------------------
