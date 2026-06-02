@@ -11,7 +11,7 @@ from backend.auth.router import router as auth_router
 from backend.workflow.planner.router import router as planner_router
 from backend.core.config import get_settings
 from backend.core.redis import close_redis
-
+from backend.intent_parser.router import router as intent_router
 settings = get_settings()
 
 
@@ -48,6 +48,7 @@ app.add_middleware(
 # Routers
 # ---------------------------------------------------------------------------
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(intent_router, prefix="/api/v1")
 app.include_router(planner_router, prefix="/api/v1")
 
 
