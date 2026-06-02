@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './routes/ProtectedRoute';
 
 // Pages
@@ -17,19 +17,28 @@ import Navbar from './components/Navbar';
 
 // Icons for Settings pane
 import { X, Shield, Cpu, Settings, HardDrive, HelpCircle } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 // Wrapper for workspace pages (Navbar + Sidebar layout)
 function WorkspaceLayout() {
+  const { user } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   
   // Custom states for mock Profile and connected services settings
-  const [profileName, setProfileName] = useState('Demo Student');
-  const [profileEmail, setProfileEmail] = useState('demo@autoflow.ai');
+  const [profileName, setProfileName] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
   const [gmailConnected, setGmailConnected] = useState(true);
   const [telegramConnected, setTelegramConnected] = useState(true);
   const [calendarConnected, setCalendarConnected] = useState(true);
+
+  // Sync profile details with current user context
+  useEffect(() => {
+    if (user) {
+      setProfileName(user.name || '');
+      setProfileEmail(user.email || '');
+    }
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-100 flex font-sans overflow-x-hidden antialiased relative">

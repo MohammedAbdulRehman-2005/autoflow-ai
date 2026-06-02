@@ -1,15 +1,12 @@
 const USERS_KEY = 'autoflow_users';
 const CURRENT_USER_KEY = 'autoflow_current_user';
 
-// Initial dummy user if none exists
+// Retrieve stored users from localStorage
 const getStoredUsers = () => {
   const users = localStorage.getItem(USERS_KEY);
   if (!users) {
-    const defaultUsers = [
-      { id: '1', name: 'Demo User', email: 'demo@autoflow.ai', password: 'password123' }
-    ];
-    localStorage.setItem(USERS_KEY, JSON.stringify(defaultUsers));
-    return defaultUsers;
+    localStorage.setItem(USERS_KEY, JSON.stringify([]));
+    return [];
   }
   return JSON.parse(users);
 };
@@ -32,9 +29,9 @@ export const authApi = {
           // Check if email matches but password incorrect
           const emailExists = users.some(u => u.email === email);
           if (emailExists) {
-            reject(new Error('Invalid password. Try "password123" for demo.'));
+            reject(new Error('Incorrect password. Please try again.'));
           } else {
-            reject(new Error('User not found. Try demo@autoflow.ai / password123 or sign up.'));
+            reject(new Error('No account found with this email. Please sign up.'));
           }
         }
       }, 700);
@@ -52,7 +49,7 @@ export const authApi = {
         }
 
         const newUser = {
-          id: String(users.length + 1),
+          id: String(Date.now()),
           name,
           email,
           password

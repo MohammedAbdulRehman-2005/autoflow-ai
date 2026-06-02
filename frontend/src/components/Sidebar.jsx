@@ -12,7 +12,7 @@ import {
   LogOut,
   Zap
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function Sidebar({ isCollapsed, setIsCollapsed, onOpenSettings }) {
   const { user, logout } = useAuth();
@@ -121,7 +121,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, onOpenSettings })
           <div className="flex items-center space-x-3 overflow-hidden">
             {/* User Avatar */}
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/10 to-cyan-400/10 border border-white/10 text-cyan-200 font-semibold text-sm">
-              {user?.name ? user.name.split(' ').map(n => n[0]).join('') : 'D'}
+              {user?.name ? user.name.split(' ').map(n => n[0]).join('') : 'S'}
             </div>
             
             {/* User Details */}
@@ -131,8 +131,8 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, onOpenSettings })
                 animate={{ opacity: 1 }}
                 className="flex flex-col overflow-hidden text-left"
               >
-                <span className="text-sm font-semibold text-white truncate">{user?.name || 'Demo User'}</span>
-                <span className="text-xs text-slate-500 truncate">{user?.email || 'demo@autoflow.ai'}</span>
+                <span className="text-sm font-semibold text-white truncate">{user?.name || 'Student'}</span>
+                <span className="text-xs text-slate-500 truncate">{user?.email || ''}</span>
               </motion.div>
             )}
           </div>

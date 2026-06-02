@@ -2,15 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Zap, Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 export default function LoginPage() {
   const { login, error, clearError, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
-  const [email, setEmail] = useState('demo@autoflow.ai');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [localError, setLocalError] = useState(null);
@@ -99,7 +99,7 @@ export default function LoginPage() {
             {/* Email Field */}
             <div className="space-y-1.5 text-left">
               <label className="text-[10px] font-bold text-slate-350 tracking-wider font-display" htmlFor="email">
-                WORK EMAIL
+                STUDENT EMAIL
               </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
@@ -109,7 +109,7 @@ export default function LoginPage() {
                   id="email"
                   type="email"
                   required
-                  placeholder="name@company.com"
+                  placeholder="name@university.edu"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pr-4 pl-10 text-xs text-white placeholder-slate-500 outline-none backdrop-blur-md transition-all hover:border-white/20 focus:border-cyan-500/50 focus:bg-slate-900/40"
@@ -127,7 +127,7 @@ export default function LoginPage() {
                   href="#"
                   onClick={(e) => {
                     e.preventDefault();
-                    setLocalError('Password recovery is disabled for demo. Use email: demo@autoflow.ai & password: password123.');
+                    setLocalError('Password recovery is not configured under local authentication.');
                   }}
                   className="text-2xs font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
                 >
