@@ -13,6 +13,7 @@ from backend.core.config import get_settings
 from backend.core.redis import close_redis
 from backend.intent_parser.router import router as intent_router
 from backend.followup_engine.router import router as followup_router
+from backend.gmail.router import router as gmail_router
 settings = get_settings()
 
 
@@ -52,6 +53,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(intent_router, prefix="/api/v1")
 app.include_router(followup_router, prefix="/api/v1")
 app.include_router(planner_router, prefix="/api/v1")
+app.include_router(gmail_router, prefix="/api/v1")
 
 
 
