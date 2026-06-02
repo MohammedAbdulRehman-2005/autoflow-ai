@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Zap, Eye, EyeOff, Mail, Lock, User as UserIcon, ArrowRight } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 export default function SignupPage() {
   const { signup, error, clearError, isLoading } = useAuth();
@@ -82,7 +82,7 @@ export default function SignupPage() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="mt-1.5 text-xs text-slate-400 font-sans font-medium"
           >
-            Create an enterprise-grade automation workspace in seconds
+            Create an academic automation workspace in seconds
           </motion.p>
         </div>
 
@@ -129,7 +129,7 @@ export default function SignupPage() {
             {/* Email Field */}
             <div className="space-y-1 text-left">
               <label className="text-[10px] font-bold text-slate-350 tracking-wider font-display" htmlFor="email">
-                WORK EMAIL
+                STUDENT EMAIL
               </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
@@ -139,7 +139,7 @@ export default function SignupPage() {
                   id="email"
                   type="email"
                   required
-                  placeholder="name@company.com"
+                  placeholder="name@university.edu"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pr-4 pl-10 text-xs text-white placeholder-slate-500 outline-none backdrop-blur-md transition-all hover:border-white/20 focus:border-cyan-500/50 focus:bg-slate-900/40"

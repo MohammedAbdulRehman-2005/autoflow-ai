@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Bell, ChevronDown, User as UserIcon, Settings, LogOut, Shield, Zap } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function Navbar({ onSearch, onOpenSettings }) {
   const { user, logout } = useAuth();
@@ -113,10 +113,10 @@ export default function Navbar({ onSearch, onOpenSettings }) {
             className="flex items-center space-x-2 rounded-xl border border-white/10 bg-white/5 p-1.5 pr-3 hover:border-white/20 hover:bg-white/10 transition-all cursor-pointer shadow-sm"
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 p-0.5 text-[11px] font-bold text-white shadow-[0_0_8px_rgba(59,130,246,0.3)]">
-              {user?.name ? user.name.split(' ').map(n => n[0]).join('') : 'D'}
+              {user?.name ? user.name.split(' ').map(n => n[0]).join('') : 'S'}
             </div>
             <div className="hidden md:flex flex-col items-start text-xs text-left">
-              <span className="font-semibold text-white truncate max-w-[100px] font-display">{user?.name || 'Demo User'}</span>
+              <span className="font-semibold text-white truncate max-w-[100px] font-display">{user?.name || 'Student'}</span>
             </div>
             <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
           </button>
@@ -131,8 +131,8 @@ export default function Navbar({ onSearch, onOpenSettings }) {
                 className="absolute right-0 mt-2 w-56 rounded-2xl border border-white/10 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur-2xl"
               >
                 <div className="px-3.5 py-3 border-b border-white/10">
-                  <p className="text-xs font-semibold text-slate-200 font-display">{user?.name || 'Demo User'}</p>
-                  <p className="text-[10px] text-slate-500 font-medium mt-0.5 truncate font-mono">{user?.email || 'demo@autoflow.ai'}</p>
+                  <p className="text-xs font-semibold text-slate-200 font-display">{user?.name || 'Student'}</p>
+                  <p className="text-[10px] text-slate-500 font-medium mt-0.5 truncate font-mono">{user?.email || ''}</p>
                 </div>
                 <div className="py-1">
                   <button
