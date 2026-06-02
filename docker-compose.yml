@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------
+  # Databases & Caches
+  # ---------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: autoflow_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-autoflow}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: autoflow_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # ---------------------------------------------
+  # Application Services
+  # ---------------------------------------------
+  backend:
+    build: 
+      context: ./backend
+    container_name: autoflow_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-autoflow}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - ./shared:/shared
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./workers
+    container_name: autoflow_worker
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-autoflow}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./workers:/app
+      - ./shared:/shared
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: autoflow_frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
