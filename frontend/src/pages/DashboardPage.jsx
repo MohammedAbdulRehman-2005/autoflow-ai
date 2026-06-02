@@ -15,9 +15,11 @@ import {
   ShieldCheck,
   Zap,
   CheckSquare,
-  BadgeAlert
+  BadgeAlert,
+  Mic,
+  MicOff
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import SummaryCard from '../components/SummaryCard';
 import { getWorkflows, getLogs, simulateRunningWorkflow } from '../mockData';
 
@@ -72,6 +74,76 @@ export default function DashboardPage() {
   // State for AI Prompt Workspace Card box
   const [promptBoxValue, setPromptBoxValue] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // States for Voice speech inputs
+  const [isListening, setIsListening] = useState(false);
+  const [activeSpeechInstance, setActiveSpeechInstance] = useState(null);
+
+  const toggleSpeechRecognition = () => {
+    const SpeechObj = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechObj) {
+      alert("Speech recognition is not supported in this browser. Try using Google Chrome, Safari, or Microsoft Edge.");
+      return;
+    }
+
+    if (isListening) {
+      if (activeSpeechInstance) {
+        activeSpeechInstance.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const rec = new SpeechObj();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => {
+        setIsListening(true);
+      };
+
+      rec.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          setPromptBoxValue(prev => (prev ? prev.trim() + ' ' : '') + transcript);
+        }
+      };
+
+      rec.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        if (event.error === 'not-allowed') {
+          alert("Microphone permission was denied. Please allow microphone access in your browser settings to use voice input.");
+        } else if (event.error === 'no-speech') {
+          // Quietly update state without intrusive alerts since standard speech end will trigger this or user can retry
+        } else {
+          alert(`Speech recognition issue: ${event.error}. Please try again.`);
+        }
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      setActiveSpeechInstance(rec);
+      rec.start();
+    } catch (e) {
+      console.error(e);
+      alert("Error initializing speech recognition. Please check your system settings.");
+      setIsListening(false);
+    }
+  };
+
+  // Turn off record listening when page is destroyed or swapped
+  useEffect(() => {
+    return () => {
+      if (activeSpeechInstance) {
+        activeSpeechInstance.stop();
+      }
+    };
+  }, [activeSpeechInstance]);
 
   const handleGenerateWorkflowText = () => {
     if (!promptBoxValue.trim()) {
@@ -187,13 +259,42 @@ export default function DashboardPage() {
 
           <div className="w-full md:max-w-md flex flex-col space-y-3">
             <div className="flex flex-col space-y-2 text-xs">
-              <textarea
-                value={promptBoxValue}
-                onChange={(e) => setPromptBoxValue(e.target.value)}
-                placeholder='Describe your automation in natural language...'
-                rows={2}
-                className="w-full text-xs text-slate-200 placeholder-slate-500 bg-slate-950/50 border border-white/10 rounded-xl p-3 outline-none resize-none hover:border-white/20 focus:border-cyan-500/55 transition-all font-sans"
-              />
+              <div className="relative">
+                <textarea
+                  value={promptBoxValue}
+                  onChange={(e) => setPromptBoxValue(e.target.value)}
+                  placeholder="Describe your automation in natural language..."
+                  rows={2}
+                  className="w-full text-xs text-slate-200 placeholder-slate-500 bg-slate-950/50 border border-white/10 rounded-xl p-3 pr-10 outline-none resize-none hover:border-white/20 focus:border-cyan-500/55 transition-all font-sans"
+                />
+                <button
+                  type="button"
+                  onClick={toggleSpeechRecognition}
+                  title={isListening ? "Stop listening" : "Start voice dictation"}
+                  className={`absolute right-3 top-3 p-1.5 rounded-lg transition-all cursor-pointer ${
+                    isListening 
+                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse' 
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  {isListening ? (
+                    <MicOff className="h-4 w-4" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+
+              {isListening && (
+                <div className="flex items-center space-x-2 text-[10px] text-rose-400 font-medium px-1 py-0.5">
+                  <span className="flex h-1.5 w-1.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
+                  </span>
+                  <span>Listening... Speak your prompt details clearly</span>
+                </div>
+              )}
+
               <div className="flex justify-between items-center text-[10px] text-slate-500 px-1">
                 <span>Example:</span>
                 <button 
