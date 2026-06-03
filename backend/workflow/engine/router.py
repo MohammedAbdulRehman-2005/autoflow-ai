@@ -33,6 +33,7 @@ from backend.workflow.engine.schemas import (
     TriggerRunRequest,
     TriggerRunResponse,
 )
+from backend.workflow.validator.validator import WorkflowValidator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workflows", tags=["Workflow Execution"])
@@ -123,6 +124,23 @@ async def trigger_run(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid workflow DSL in database: {e}",
+        )
+
+    # ── Pre-run validation gate ───────────────────────────────────────────────
+    validator = WorkflowValidator(db=db)
+    validation_result = await validator.validate(
+        dsl=dsl,
+        user_id=current_user.id,
+        workflow_id=workflow_id,
+    )
+    if not validation_result.is_valid:
+        error_count = len(validation_result.errors)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": f"Workflow failed validation with {error_count} error(s). Fix them before running.",
+                **validation_result.to_response(),
+            },
         )
 
     # Create the run record
