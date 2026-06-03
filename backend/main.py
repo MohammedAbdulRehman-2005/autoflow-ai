@@ -16,6 +16,9 @@ from backend.scheduler.router import router as scheduler_router
 from backend.scheduler.service import scheduler_service
 from backend.core.config import get_settings
 from backend.core.redis import close_redis
+from backend.intent_parser.router import router as intent_router
+from backend.followup_engine.router import router as followup_router
+from backend.gmail.router import router as gmail_router
 from backend.database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -95,14 +98,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Routers  (prefix /api/v1 applied to all)
-# ─────────────────────────────────────────────────────────────────────────────
-app.include_router(auth_router,      prefix="/api/v1")
-app.include_router(planner_router,   prefix="/api/v1")
-app.include_router(engine_router,    prefix="/api/v1")
-app.include_router(validator_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(intent_router, prefix="/api/v1")
+app.include_router(followup_router, prefix="/api/v1")
+app.include_router(planner_router, prefix="/api/v1")
+app.include_router(engine_router, prefix="/api/v1")
 app.include_router(scheduler_router, prefix="/api/v1")
+app.include_router(gmail_router, prefix="/api/v1")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
