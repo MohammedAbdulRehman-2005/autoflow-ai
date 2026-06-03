@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.auth.router import router as auth_router
 from backend.workflow.planner.router import router as planner_router
 from backend.workflow.engine.router import router as engine_router
+from backend.workflow.validator.router import router as validator_router
 from backend.scheduler.router import router as scheduler_router
 from backend.scheduler.service import scheduler_service
 from backend.core.config import get_settings
@@ -100,6 +101,7 @@ app.add_middleware(
 app.include_router(auth_router,      prefix="/api/v1")
 app.include_router(planner_router,   prefix="/api/v1")
 app.include_router(engine_router,    prefix="/api/v1")
+app.include_router(validator_router, prefix="/api/v1")
 app.include_router(scheduler_router, prefix="/api/v1")
 
 
