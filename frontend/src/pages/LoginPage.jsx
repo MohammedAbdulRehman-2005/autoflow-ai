@@ -1,55 +1,65 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Zap, Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react';
+import { Zap, Eye, EyeOff, Mail, Lock, ArrowRight, Sparkles, Info } from 'lucide-react';
 import { motion } from 'motion/react';
+
+const DEMO_EMAIL    = 'demo@autoflow.ai';
+const DEMO_PASSWORD = 'demo1234';
 
 export default function LoginPage() {
   const { login, error, clearError, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
-  const [localError, setLocalError] = useState(null);
 
-  // Clear errors on load
-  useEffect(() => {
-    clearError();
-    setLocalError(null);
-  }, []);
+  // Pre-fill with demo credentials
+  const [email, setEmail]               = useState(DEMO_EMAIL);
+  const [password, setPassword]         = useState(DEMO_PASSWORD);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe]     = useState(true);
+  const [localError, setLocalError]     = useState(null);
+  const [demoWarning, setDemoWarning]   = useState(false);
+
+  useEffect(() => { clearError(); setLocalError(null); }, []);
 
   const from = location.state?.from?.pathname || '/dashboard';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLocalError(null);
+    setDemoWarning(false);
 
     if (!email || !password) {
       setLocalError('Please fill in all fields.');
       return;
     }
 
-    const success = await login(email, password);
-    if (success) {
+    const result = await login(email, password);
+    if (result !== false) {
+      if (result?.demo) setDemoWarning(true);
       navigate(from, { replace: true });
     }
   };
 
+  const fillDemo = () => {
+    setEmail(DEMO_EMAIL);
+    setPassword(DEMO_PASSWORD);
+    setLocalError(null);
+  };
+
   return (
     <div className="relative min-h-screen bg-[#020617] flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 overflow-hidden select-none">
-      {/* Premium Ambient Background Mesh */}
+
+      {/* Ambient background */}
       <div className="absolute inset-0 z-0 overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-600/15 rounded-full blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-cyan-500/15 rounded-full blur-[120px]"></div>
-        {/* Subtle grid background */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f293708_1px,transparent_1px),linear-gradient(to_bottom,#1f293708_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-600/15 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-cyan-500/15 rounded-full blur-[120px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f293708_1px,transparent_1px),linear-gradient(to_bottom,#1f293708_1px,transparent_1px)] bg-[size:24px_24px]" />
       </div>
 
       <div className="relative z-10 w-full max-w-md">
-        {/* Brand Identity Header */}
+
+        {/* Brand */}
         <div className="text-center mb-8">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
@@ -77,15 +87,36 @@ export default function LoginPage() {
           </motion.p>
         </div>
 
-        {/* Glassmorphic Form Card */}
+        {/* Form card */}
         <motion.div
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
           className="border border-white/10 rounded-3xl bg-white/5 p-8 shadow-2xl backdrop-blur-lg"
         >
+          {/* ── Demo credentials banner ─────────────────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-5 flex items-start gap-2.5 rounded-2xl border border-cyan-500/20 bg-cyan-500/8 p-3.5"
+          >
+            <Sparkles className="h-4 w-4 text-cyan-400 mt-0.5 shrink-0 animate-pulse" />
+            <div className="flex-1 text-left">
+              <p className="text-xs font-bold text-cyan-300">Try the Live Demo</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                Pre-filled with demo credentials. Just click&nbsp;
+                <span className="font-bold text-white">Continue</span> to explore the dashboard.
+              </p>
+              <div className="mt-2 flex gap-2 text-[10px] font-mono">
+                <span className="rounded-lg bg-white/8 border border-white/10 px-2 py-1 text-slate-300">{DEMO_EMAIL}</span>
+                <span className="rounded-lg bg-white/8 border border-white/10 px-2 py-1 text-slate-300">{DEMO_PASSWORD}</span>
+              </div>
+            </div>
+          </motion.div>
+
           <form className="space-y-5" onSubmit={handleSubmit}>
-            {/* Error Message banner */}
+
+            {/* Error banner */}
             {(error || localError) && (
               <motion.div
                 initial={{ opacity: 0, y: -5 }}
@@ -96,20 +127,20 @@ export default function LoginPage() {
               </motion.div>
             )}
 
-            {/* Email Field */}
+            {/* Email */}
             <div className="space-y-1.5 text-left">
               <label className="text-[10px] font-bold text-slate-350 tracking-wider font-display" htmlFor="email">
-                STUDENT EMAIL
+                EMAIL
               </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
-                  <Mail className="h-4.5 w-4.5" />
+                  <Mail className="h-4 w-4" />
                 </div>
                 <input
                   id="email"
                   type="email"
                   required
-                  placeholder="name@university.edu"
+                  placeholder="demo@autoflow.ai"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pr-4 pl-10 text-xs text-white placeholder-slate-500 outline-none backdrop-blur-md transition-all hover:border-white/20 focus:border-cyan-500/50 focus:bg-slate-900/40"
@@ -117,26 +148,23 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Password Field */}
+            {/* Password */}
             <div className="space-y-1.5 text-left">
               <div className="flex justify-between items-center">
                 <label className="text-[10px] font-bold text-slate-350 tracking-wider font-display" htmlFor="password">
                   PASSWORD
                 </label>
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setLocalError('Password recovery is not configured under local authentication.');
-                  }}
-                  className="text-2xs font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
+                <button
+                  type="button"
+                  onClick={fillDemo}
+                  className="text-2xs font-bold text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
                 >
-                  Forgot Password?
-                </a>
+                  Use Demo →
+                </button>
               </div>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
-                  <Lock className="h-4.5 w-4.5" />
+                  <Lock className="h-4 w-4" />
                 </div>
                 <input
                   id="password"
@@ -152,12 +180,12 @@ export default function LoginPage() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-500 hover:text-slate-300 cursor-pointer"
                 >
-                  {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
-            {/* Remember Me Toggle */}
+            {/* Remember me */}
             <div className="flex items-center">
               <input
                 id="remember_me"
@@ -171,14 +199,14 @@ export default function LoginPage() {
               </label>
             </div>
 
-            {/* Continue Button */}
+            {/* Submit */}
             <button
               type="submit"
               disabled={isLoading}
               className="relative w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white shadow-lg shadow-blue-500/20 hover:shadow-cyan-500/30 transition-all duration-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group active:scale-[0.98]"
             >
               {isLoading ? (
-                <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
                   <span>Continue into Workspace</span>
@@ -188,8 +216,14 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Create Account Link */}
-          <div className="mt-6 text-center">
+          {/* Demo mode info note */}
+          <div className="mt-4 flex items-center gap-1.5 justify-center text-[10px] text-slate-500">
+            <Info className="h-3 w-3 shrink-0" />
+            <span>Demo mode works offline — no backend required to explore the UI</span>
+          </div>
+
+          {/* Create account link */}
+          <div className="mt-4 text-center">
             <span className="text-xs text-slate-550 font-medium">New to AutoFlow AI? </span>
             <Link to="/signup" className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline transition-colors">
               Create free Account
