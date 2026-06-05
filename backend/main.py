@@ -92,7 +92,12 @@ app = FastAPI(
 # ─────────────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=[
+        "http://localhost:5173",                    # Vite local dev
+        "http://localhost:3000",                    # Alt local port
+        "https://autoflow-ai-ebon.vercel.app",     # Production Vercel frontend
+        "https://autoflow-ai-ebon.vercel.app/",    # with trailing slash
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
