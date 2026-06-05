@@ -31,9 +31,10 @@ export function AuthProvider({ children }) {
     try {
       const response = await authApi.login(email, password);
       setUser(response.user);
-      return true;
+      // Return the full response so callers can detect demo mode (response.demo)
+      return response;
     } catch (err) {
-      setError(err.message || 'Login failed');
+      setError(err.message || 'Login failed. Please check your credentials.');
       return false;
     } finally {
       setIsLoading(false);
@@ -46,9 +47,9 @@ export function AuthProvider({ children }) {
     try {
       const response = await authApi.signup(name, email, password);
       setUser(response.user);
-      return true;
+      return response;
     } catch (err) {
-      setError(err.message || 'Signup failed');
+      setError(err.message || 'Signup failed. Please try again.');
       return false;
     } finally {
       setIsLoading(false);
