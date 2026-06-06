@@ -549,7 +549,7 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     resource_type: Mapped[Optional[str]] = mapped_column(String(100))
     resource_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+    event_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSONB)
     ip_address: Mapped[Optional[str]] = mapped_column(INET)
     user_agent: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False, index=True)
