@@ -5,8 +5,13 @@ AutoFlow AI X — FastAPI Application Entry Point
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+import sentry_sdk
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from backend.core.rate_limit import limiter
 
 from backend.auth.router import router as auth_router
 from backend.workflow.planner.router import router as planner_router
@@ -23,6 +28,13 @@ from backend.database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
+    )
 
 
 @asynccontextmanager
@@ -87,17 +99,20 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CORS
 # ─────────────────────────────────────────────────────────────────────────────
+# Parse ALLOWED_ORIGINS string into a list
+allowed_origins = [
+    origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",                    # Vite local dev
-        "http://localhost:3000",                    # Alt local port
-        "https://autoflow-ai-ebon.vercel.app",     # Production Vercel frontend
-        "https://autoflow-ai-ebon.vercel.app/",    # with trailing slash
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

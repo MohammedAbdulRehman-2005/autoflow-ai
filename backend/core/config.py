@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     # ── Application ──────────────────────────────────────────────────────────
     APP_NAME: str = "AutoFlow AI X"
     DEBUG: bool = False
+    SENTRY_DSN: str = ""
+    ALLOWED_ORIGINS: str = "http://localhost:5173,https://autoflow-ai-ebon.vercel.app"
 
     # ── Database ─────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/autoflow"
@@ -25,6 +27,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15       # 15 minutes
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7           # 7 days
+    FERNET_KEY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -22,3 +22,6 @@ celery-redbeat>=2.0.0         # Redis-backed Beat scheduler (survives restarts)
 langchain-core>=0.2.10
 langchain-groq>=0.1.6
 langgraph>=0.1.14
+# ── Production Readiness ──────────────────────────────────────────────────
+sentry-sdk>=2.5.1             # Error tracking
+slowapi>=0.1.9                # Rate limiting for FastAPI
