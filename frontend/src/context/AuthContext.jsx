@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authApi } from '../services/authApi';
 
 const AuthContext = createContext(undefined);
@@ -68,7 +68,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const clearError = () => setError(null);
+  const clearError = useCallback(() => setError(null), []);
 
   return (
     <AuthContext.Provider

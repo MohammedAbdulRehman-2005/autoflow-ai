@@ -18,8 +18,7 @@ export default function SignupPage() {
   // Clean error cache on mounting
   useEffect(() => {
     clearError();
-    setLocalError(null);
-  }, []);
+  }, [clearError]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

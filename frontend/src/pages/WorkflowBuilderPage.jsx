@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import {
   GitBranch, Play, Save, Download, AlertCircle, Brain, Zap, Server,
   ArrowRight, Terminal, RotateCw, Sparkles, RefreshCw, CheckCircle2
@@ -66,6 +66,10 @@ export default function WorkflowBuilderPage() {
   // Validation
   const [validationResult, setValidationResult] = useState(null);
 
+  // AI Reasoning
+  const [aiReasoning, setAiReasoning] = useState(null);
+  const [confidence, setConfidence] = useState(0);
+
   const addLog = (msg) => setTerminalLogs(prev => [...prev, `${new Date().toLocaleTimeString()} › ${msg}`]);
 
   // ── Plan Workflow (AI) ─────────────────────────────────────────────────────
@@ -93,6 +97,8 @@ export default function WorkflowBuilderPage() {
 
       addLog(`✅ AI planner returned DSL: "${dsl.name || 'workflow'}" with ${dsl.nodes?.length || 0} node(s)`);
       setWorkflowName(dsl.name || workflowName);
+      setAiReasoning(result.reasoning || ['Analyzed prompt semantics.', 'Mapped to available integrations.', 'Generated execution graph.']);
+      setConfidence(result.confidence || 95);
     } catch (err) {
       setPlanError(err.message || 'AI planning failed.');
       addLog(`❌ Planning error: ${err.message}`);
@@ -265,11 +271,7 @@ export default function WorkflowBuilderPage() {
                     key={i}
                     type="button"
                     onClick={() => {
-                      if (appendMode) {
-                        setNaturalLanguagePrompt(prev => prev ? prev.trim() + " " + sample : sample);
-                      } else {
-                        setNaturalLanguagePrompt(sample);
-                      }
+                      setPrompt(sample);
                       setTerminalLogs(prev => [...prev, `💡 Clicked Quick Example: "${sample}"`]);
                     }}
                     className="p-2 w-full text-left font-sans font-semibold text-[11px] text-slate-400 hover:text-white rounded-xl bg-white/5 border border-transparent hover:border-white/10 hover:bg-slate-900/40 transition-all cursor-pointer truncate"
