@@ -64,7 +64,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: Dockerfile.backend
     container_name: autoflow_backend
     ports:
       - "8000:8000"
@@ -94,7 +94,7 @@ services:
   celery_worker:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: Dockerfile.backend
     container_name: autoflow_celery_worker
     environment:
       <<: *backend-env
@@ -124,7 +124,7 @@ services:
   celery_beat:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: Dockerfile.backend
     container_name: autoflow_celery_beat
     environment:
       <<: *backend-env
@@ -148,7 +148,7 @@ services:
   flower:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: Dockerfile.backend
     container_name: autoflow_flower
     ports:
       - "5555:5555"
