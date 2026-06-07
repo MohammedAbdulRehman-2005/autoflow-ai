@@ -11,7 +11,8 @@
  *   - On 401: auto-refresh using refresh token, then retry the original request once
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory access token (XSS-safe — not exposed to localStorage)
@@ -85,9 +86,9 @@ async function _tryRefresh() {
     });
     if (!res.ok) return false;
     const data = await res.json();
-    tokenStore.set(data.access_token);
-    if (data.refresh_token) {
-      localStorage.setItem('af_refresh_token', data.refresh_token);
+    tokenStore.set(data.tokens.access_token);
+    if (data.tokens.refresh_token) {
+      localStorage.setItem('af_refresh_token', data.tokens.refresh_token);
     }
     return true;
   } catch {

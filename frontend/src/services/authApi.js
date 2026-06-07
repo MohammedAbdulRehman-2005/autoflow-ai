@@ -51,9 +51,9 @@ export const authApi = {
    */
   signup: async (name, email, password) => {
     try {
-      const data = await api.post('/api/v1/auth/signup', { name, email, password });
-      tokenStore.set(data.access_token);
-      localStorage.setItem('af_refresh_token', data.refresh_token);
+      const data = await api.post('/api/v1/auth/signup', { full_name: name, email, password });
+      tokenStore.set(data.tokens.access_token);
+      localStorage.setItem('af_refresh_token', data.tokens.refresh_token);
       localStorage.removeItem('af_demo_mode');
       return { user: data.user };
     } catch (err) {
@@ -81,8 +81,8 @@ export const authApi = {
 
     try {
       const data = await api.post('/api/v1/auth/login', { email, password });
-      tokenStore.set(data.access_token);
-      localStorage.setItem('af_refresh_token', data.refresh_token);
+      tokenStore.set(data.tokens.access_token);
+      localStorage.setItem('af_refresh_token', data.tokens.refresh_token);
       localStorage.removeItem('af_demo_mode');
       return { user: data.user };
     } catch (err) {
@@ -129,9 +129,9 @@ export const authApi = {
           return null;
         }
         const tokenData = await res.json();
-        tokenStore.set(tokenData.access_token);
-        if (tokenData.refresh_token) {
-          localStorage.setItem('af_refresh_token', tokenData.refresh_token);
+        tokenStore.set(tokenData.tokens.access_token);
+        if (tokenData.tokens.refresh_token) {
+          localStorage.setItem('af_refresh_token', tokenData.tokens.refresh_token);
         }
       } catch {
         localStorage.removeItem('af_refresh_token');
