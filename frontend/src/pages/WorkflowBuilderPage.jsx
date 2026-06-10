@@ -80,7 +80,12 @@ export default function WorkflowBuilderPage() {
     setValidationResult(null);
     addLog('🔄 Sending prompt to AI planner...');
     try {
-      const result = await workflowApi.planWorkflow(prompt);
+      const intent = {
+        goal: prompt,
+        trigger: 'Auto-inferred from prompt',
+        integrations: [],
+      };
+      const result = await workflowApi.planWorkflow(workflowName, intent);
       const dsl = result.dsl || result;
       setPlannedDsl(dsl);
 

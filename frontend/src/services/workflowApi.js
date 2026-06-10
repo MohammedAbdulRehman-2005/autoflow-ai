@@ -59,8 +59,11 @@ export const workflowApi = {
    * Returns a generated WorkflowDSL JSON.
    * POST /api/v1/ai/plan-workflow
    */
-  planWorkflow: async (prompt) => {
-    return api.post('/api/v1/ai/plan-workflow', { prompt });
+  planWorkflow: async (workflowName, intent) => {
+    return api.post('/api/v1/ai/plan-workflow', {
+      workflow_name: workflowName,
+      intent: intent
+    });
   },
 
   // ─── Validation ──────────────────────────────────────────────────────────
