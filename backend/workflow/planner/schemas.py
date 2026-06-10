@@ -43,6 +43,10 @@ class IntentDetails(BaseModel):
 class PlanWorkflowRequest(BaseModel):
     workflow_name: str = Field(..., min_length=1, max_length=255)
     intent: IntentDetails
+    existing_dsl: Optional[Dict[str, Any]] = Field(
+        None,
+        description="The current WorkflowDSL JSON when iteratively modifying an existing workflow."
+    )
     # user_id injected from auth token in the router — not provided by client
 
 
