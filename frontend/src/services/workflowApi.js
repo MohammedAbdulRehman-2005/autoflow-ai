@@ -59,10 +59,11 @@ export const workflowApi = {
    * Returns a generated WorkflowDSL JSON.
    * POST /api/v1/ai/plan-workflow
    */
-  planWorkflow: async (workflowName, intent) => {
+  planWorkflow: async (workflowName, intent, existingDsl = null) => {
     return api.post('/api/v1/ai/plan-workflow', {
       workflow_name: workflowName,
-      intent: intent
+      intent: intent,
+      ...(existingDsl ? { existing_dsl: existingDsl } : {}),
     });
   },
 

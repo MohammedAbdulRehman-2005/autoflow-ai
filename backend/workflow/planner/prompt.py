@@ -12,11 +12,11 @@ import json
 from backend.workflow.dsl.examples import get_example_dsl_json
 
 
-def build_system_prompt() -> str:
+def build_system_prompt(existing_dsl: dict | None = None) -> str:
     appt_example = json.dumps(get_example_dsl_json("appointment"), indent=2)
     report_example = json.dumps(get_example_dsl_json("weekly_report"), indent=2)
 
-    return f"""You are the Workflow Planner for AutoFlow AI X — an AI-native workflow automation platform.
+    base_prompt = f"""You are the Workflow Planner for AutoFlow AI X — an AI-native workflow automation platform.
 Your ONLY job is to convert a user's business automation intent into a valid AutoFlow DSL JSON object.
 
 ══════════════════════════════════════════════════════════════
@@ -208,6 +208,25 @@ Think step by step:
 
 Output ONLY the JSON. Nothing else.
 """
+
+    if existing_dsl:
+        base_prompt += """
+══════════════════════════════════════════════════════════════
+INCREMENTAL EDIT MODE — CRITICAL ADDITIONAL RULES
+══════════════════════════════════════════════════════════════
+
+You are in INCREMENTAL EDIT MODE. An existing workflow DSL is provided.
+
+1. READ the existing DSL carefully before making any changes.
+2. PRESERVE all node IDs exactly as they appear — never rename existing nodes.
+3. Only ADD, REMOVE, or MODIFY the minimum set of nodes/edges required by the edit request.
+4. If you add a new node, give it a brand-new unique snake_case ID not already present.
+5. Update on_success / on_failure and edges list to reflect any structural changes.
+6. Return the COMPLETE updated workflow DSL (not just the diff).
+7. Keep the same top-level workflow id, name (unless the user asks to rename it), and version.
+"""
+
+    return base_prompt
 
 
 def build_retry_prompt(previous_dsl: str, validation_errors: list[str]) -> str:

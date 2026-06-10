@@ -45,6 +45,7 @@ async def plan_workflow(
         return await service.plan_workflow(
             workflow_name=payload.workflow_name,
             intent=payload.intent,
+            existing_dsl=payload.existing_dsl,
             user_id=current_user.id,
             db=db,
         )
