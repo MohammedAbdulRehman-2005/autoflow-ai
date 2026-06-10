@@ -61,7 +61,11 @@ async function request(path, options = {}, retry = true) {
     let errMsg = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      errMsg = body.detail?.message || body.detail || JSON.stringify(body);
+      if (Array.isArray(body.detail)) {
+        errMsg = body.detail.map(err => err.msg || JSON.stringify(err)).join(', ');
+      } else {
+        errMsg = body.detail?.message || body.detail || JSON.stringify(body);
+      }
     } catch (_) {
       errMsg = await res.text();
     }
