@@ -32,6 +32,38 @@ function WorkspaceLayout() {
   const [telegramConnected, setTelegramConnected] = useState(true);
   const [calendarConnected, setCalendarConnected] = useState(true);
 
+  // Persistent AI Provider & Model States
+  const [selectedProvider, setSelectedProvider] = useState(() => {
+    return localStorage.getItem('autoflow_ai_provider') || 'Gemini';
+  });
+  const [selectedModel, setSelectedModel] = useState(() => {
+    return localStorage.getItem('autoflow_ai_model') || 'Gemini 2.5 Flash';
+  });
+
+  // Providers map with respective models
+  const providerModels = {
+    Gemini: ['Gemini 2.5 Flash', 'Gemini 2.5 Pro', 'Gemini 1.5 Pro'],
+    OpenAI: ['GPT-4o', 'GPT-4o-mini', 'o1-pro'],
+    Grok: ['Grok 2 Stable', 'Grok 2 Beta', 'Grok 1.5']
+  };
+
+  // If the provider changes, auto-select its first available model
+  const handleProviderChange = (newProvider) => {
+    setSelectedProvider(newProvider);
+    const models = providerModels[newProvider] || [];
+    if (models.length > 0) {
+      setSelectedModel(models[0]);
+    }
+  };
+
+  // Save changes to localStorage
+  const handleApplyChanges = () => {
+    localStorage.setItem('autoflow_ai_provider', selectedProvider);
+    localStorage.setItem('autoflow_ai_model', selectedModel);
+    setShowSettings(false);
+    alert("Workspace and AI Configuration settings successfully synchronized!");
+  };
+
   // Sync profile details with current user context
   useEffect(() => {
     if (user) {
@@ -205,16 +237,42 @@ function WorkspaceLayout() {
                     <HardDrive className="h-4 w-4 text-purple-400" />
                     <h4 className="text-xs font-bold tracking-wider uppercase font-display">AI Configuration</h4>
                   </div>
-                  <div className="p-3.5 rounded-xl border border-white/10 bg-slate-950/20 space-y-2 text-xs">
-                    <div className="flex justify-between items-center text-slate-400 font-medium">
-                      <span>AI Provider:</span>
-                      <span className="text-white font-bold font-display">Gemini</span>
+                  <div className="p-3.5 rounded-xl border border-white/10 bg-slate-950/20 space-y-3 text-xs">
+                    {/* Provider Selection */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 tracking-wider">AI PROVIDER</label>
+                      <select
+                        value={selectedProvider}
+                        onChange={(e) => handleProviderChange(e.target.value)}
+                        className="w-full rounded-xl border border-white/10 bg-slate-950/50 py-2 px-3 text-xs text-white outline-none hover:border-white/25 focus:border-cyan-500/40 cursor-pointer h-9"
+                      >
+                        <option value="Gemini" className="bg-slate-950 text-white">Gemini</option>
+                        <option value="OpenAI" className="bg-slate-950 text-white">OpenAI</option>
+                        <option value="Grok" className="bg-slate-950 text-white">Grok</option>
+                      </select>
                     </div>
-                    <div className="flex justify-between items-center text-slate-400 font-medium">
+
+                    {/* Model Selection */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 tracking-wider">AI MODEL ENGINE</label>
+                      <select
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        className="w-full rounded-xl border border-white/10 bg-slate-950/50 py-2 px-3 text-xs text-white outline-none hover:border-white/25 focus:border-cyan-500/40 cursor-pointer h-9"
+                      >
+                        {(providerModels[selectedProvider] || []).map((model) => (
+                          <option key={model} value={model} className="bg-slate-950 text-white">
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex justify-between items-center text-slate-400 font-medium pt-1 border-t border-white/5">
                       <span>Status:</span>
                       <span className="font-bold text-emerald-400 flex items-center gap-1.5">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                        Connected
+                        Active
                       </span>
                     </div>
                   </div>
@@ -223,16 +281,9 @@ function WorkspaceLayout() {
               </div>
 
               {/* Panel Footer */}
-              <div className="border-t border-white/10 pt-4 space-y-3">
-                <div className="flex items-center justify-between text-2xs text-slate-400 font-medium">
-                  <span className="flex items-center gap-1 text-slate-500"><HelpCircle className="h-3 w-3" /> System host info:</span>
-                  <span className="font-mono text-cyan-400/80">v1.12.5 • SECURED</span>
-                </div>
+              <div className="border-t border-white/10 pt-4">
                 <button
-                  onClick={() => {
-                    setShowSettings(false);
-                    alert("Profile settings and service maps successfully synchronized!");
-                  }}
+                  onClick={handleApplyChanges}
                   className="w-full py-2.5 rounded-xl font-bold text-xs text-center bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white cursor-pointer active:scale-98 transition-all shadow-lg shadow-blue-500/10"
                 >
                   Apply Workspace Changes

@@ -5,7 +5,7 @@ it handles HTTP concerns (status codes, headers) and delegates
 all business logic to auth/service.py.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 
 from backend.auth import service
@@ -22,6 +22,7 @@ from backend.auth.schemas import (
 from backend.core.redis import get_redis
 from backend.database.models import User
 from backend.database.session import get_db
+from backend.core.rate_limit import limiter
 import redis.asyncio as aioredis
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -37,7 +38,9 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user account",
 )
+@limiter.limit("5/minute")
 async def signup(
+    request: Request,
     payload: SignupRequest,
     db: Session = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
@@ -65,7 +68,9 @@ async def signup(
     status_code=status.HTTP_200_OK,
     summary="Log in with email and password",
 )
+@limiter.limit("10/minute")
 async def login(
+    request: Request,
     payload: LoginRequest,
     db: Session = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),

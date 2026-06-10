@@ -3,7 +3,7 @@ uvicorn[standard]>=0.29.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.9
 python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+bcrypt>=4.1.0
 redis>=5.0.0
 pydantic[email]>=2.7.0
 pydantic-settings>=2.2.0
@@ -16,3 +16,16 @@ google-api-python-client
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
+
+# ── Celery + production task queue ──────────────────────────────────────────
+celery[redis]>=5.3.0          # Celery with Redis support
+flower>=2.0.0                 # Celery monitoring dashboard (port 5555)
+celery-redbeat>=2.0.0         # Redis-backed Beat scheduler (survives restarts)
+
+# ── LangGraph AI Agents ───────────────────────────────────────────────────
+langchain-core>=0.2.10
+langchain-groq>=0.1.6
+langgraph>=0.1.14
+# ── Production Readiness ──────────────────────────────────────────────────
+sentry-sdk>=2.5.1             # Error tracking
+slowapi>=0.1.9                # Rate limiting for FastAPI

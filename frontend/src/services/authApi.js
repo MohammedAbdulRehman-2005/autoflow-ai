@@ -1,85 +1,70 @@
-const USERS_KEY = 'autoflow_users';
-const CURRENT_USER_KEY = 'autoflow_current_user';
+import { api, tokenStore } from './apiClient';
 
-// Retrieve stored users from localStorage
-const getStoredUsers = () => {
-  const users = localStorage.getItem(USERS_KEY);
-  if (!users) {
-    localStorage.setItem(USERS_KEY, JSON.stringify([]));
-    return [];
-  }
-  return JSON.parse(users);
-};
+export const isDemoMode = () => false;
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 
 export const authApi = {
-  login: async (email, password) => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const users = getStoredUsers();
-        const user = users.find(u => u.email === email && u.password === password);
-        
-        if (user) {
-          const { password, ...userWithoutPassword } = user;
-          localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userWithoutPassword));
-          resolve({
-            user: userWithoutPassword,
-            token: `mock-jwt-token-for-${userWithoutPassword.id}`
-          });
-        } else {
-          // Check if email matches but password incorrect
-          const emailExists = users.some(u => u.email === email);
-          if (emailExists) {
-            reject(new Error('Incorrect password. Please try again.'));
-          } else {
-            reject(new Error('No account found with this email. Please sign up.'));
-          }
-        }
-      }, 700);
-    });
-  },
-
   signup: async (name, email, password) => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const users = getStoredUsers();
-        
-        if (users.some(u => u.email === email)) {
-          reject(new Error('Email is already registered.'));
-          return;
-        }
-
-        const newUser = {
-          id: String(Date.now()),
-          name,
-          email,
-          password
-        };
-
-        const updatedUsers = [...users, newUser];
-        localStorage.setItem(USERS_KEY, JSON.stringify(updatedUsers));
-
-        const { password: _, ...userWithoutPassword } = newUser;
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userWithoutPassword));
-
-        resolve({
-          user: userWithoutPassword,
-          token: `mock-jwt-token-for-${newUser.id}`
-        });
-      }, 800);
-    });
+    const data = await api.post('/api/v1/auth/signup', { full_name: name, email, password });
+    tokenStore.set(data.tokens.access_token);
+    localStorage.setItem('af_refresh_token', data.tokens.refresh_token);
+    return { user: data.user };
   },
 
-  logout: async () => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        localStorage.removeItem(CURRENT_USER_KEY);
-        resolve();
-      }, 300);
-    });
+  login: async (email, password) => {
+    const data = await api.post('/api/v1/auth/login', { email, password });
+    tokenStore.set(data.tokens.access_token);
+    localStorage.setItem('af_refresh_token', data.tokens.refresh_token);
+    return { user: data.user };
   },
 
   getCurrentUser: async () => {
-    const user = localStorage.getItem(CURRENT_USER_KEY);
-    return user ? JSON.parse(user) : null;
-  }
+    const refreshToken = localStorage.getItem('af_refresh_token');
+    if (!refreshToken) return null;
+
+    if (!tokenStore.get()) {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/auth/refresh`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          }
+        );
+        if (!res.ok) {
+          localStorage.removeItem('af_refresh_token');
+          return null;
+        }
+        const tokenData = await res.json();
+        tokenStore.set(tokenData.tokens.access_token);
+        if (tokenData.tokens.refresh_token) {
+          localStorage.setItem('af_refresh_token', tokenData.tokens.refresh_token);
+        }
+      } catch {
+        localStorage.removeItem('af_refresh_token');
+        return null;
+      }
+    }
+
+    try {
+      const user = await api.get('/api/v1/auth/me');
+      return user;
+    } catch {
+      return null;
+    }
+  },
+
+  logout: async () => {
+    const refreshToken = localStorage.getItem('af_refresh_token');
+    try {
+      if (refreshToken) {
+        await api.post('/api/v1/auth/logout', { refresh_token: refreshToken });
+      }
+    } catch (_) {}
+    tokenStore.clear();
+    localStorage.removeItem('af_refresh_token');
+  },
 };

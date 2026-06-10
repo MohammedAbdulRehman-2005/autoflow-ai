@@ -232,9 +232,14 @@ async def plan_workflow(
     intent: IntentDetails,
     user_id: uuid.UUID,
     db: Session,
+    existing_dsl: Optional[dict] = None,
 ) -> PlanWorkflowResponse:
     """
     Main planner entry point.
+
+    When `existing_dsl` is supplied the model is instructed to *incrementally
+    modify* the existing workflow rather than generate a fresh one.  Stable
+    node IDs are preserved so the React-Flow canvas doesn't jump around.
 
     Steps:
       1. Build the user message from the intent
@@ -245,10 +250,10 @@ async def plan_workflow(
       6. Return full response
     """
     groq_client = Groq(api_key=settings.GROQ_API_KEY)
-    system_prompt = build_system_prompt()
+    system_prompt = build_system_prompt(existing_dsl=existing_dsl)
 
     # Build the user message from the structured intent
-    user_message = _build_user_message(workflow_name, intent)
+    user_message = _build_user_message(workflow_name, intent, existing_dsl=existing_dsl)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -350,10 +355,14 @@ async def plan_workflow(
 # INTENT → USER MESSAGE
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_user_message(workflow_name: str, intent: IntentDetails) -> str:
+def _build_user_message(workflow_name: str, intent: IntentDetails, existing_dsl: Optional[dict] = None) -> str:
     """
     Convert the structured IntentDetails into a clear user message for Groq.
     Presenting it as structured JSON gives the model clear, unambiguous input.
+
+    When existing_dsl is provided, the message instructs the model to modify
+    only the parts of the existing workflow that are relevant to the new intent,
+    and to PRESERVE all other node IDs and structure unchanged.
     """
     intent_dict = {
         "workflow_name": workflow_name,
@@ -363,6 +372,18 @@ def _build_user_message(workflow_name: str, intent: IntentDetails) -> str:
         "integrations_needed": intent.integrations,
         "additional_details": intent.extra_details or {},
     }
+
+    if existing_dsl:
+        return (
+            "INCREMENTAL EDIT REQUEST:\n"
+            "The user wants to modify their existing workflow. "
+            "Apply ONLY the changes described in the edit request below. "
+            "Preserve all existing node IDs exactly as-is — do NOT rename or reorder any node that is not being changed. "
+            "Only add, remove, or adjust the nodes/edges that are relevant to the edit.\n\n"
+            f"EXISTING WORKFLOW DSL:\n{json.dumps(existing_dsl, indent=2)}\n\n"
+            f"EDIT REQUEST:\n{json.dumps(intent_dict, indent=2)}"
+        )
+
     return (
         "Generate a complete AutoFlow DSL JSON for the following automation workflow:\n\n"
         + json.dumps(intent_dict, indent=2)

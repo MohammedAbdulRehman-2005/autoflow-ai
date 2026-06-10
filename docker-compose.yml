@@ -1,66 +1,178 @@
 version: '3.8'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# AutoFlow AI X — Production Docker Compose
+#
+# Services:
+#   postgres        — PostgreSQL 15 (primary data store)
+#   redis           — Redis 7      (Celery broker + result backend + session)
+#   backend         — FastAPI app  (port 8000)
+#   celery_worker   — Celery worker (default + high_priority queues)
+#   celery_beat     — Celery Beat scheduler (cron/interval workflows)
+#   flower          — Celery monitoring dashboard (port 5555)
+#   frontend        — Vite React app (port 5173)
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-autoflow}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1     # DB 1 keeps results separate from sessions
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+  DEBUG: ${DEBUG:-false}
+
 services:
-  # ---------------------------------------------
-  # Databases & Caches
-  # ---------------------------------------------
+
+  # ── Infrastructure ─────────────────────────────────────────────────────────
+
   postgres:
     image: postgres:15-alpine
     container_name: autoflow_postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_USER:     ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-autoflow}
+      POSTGRES_DB:       ${POSTGRES_DB:-autoflow}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: autoflow_redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
-  # ---------------------------------------------
-  # Application Services
-  # ---------------------------------------------
+  # ── Application ────────────────────────────────────────────────────────────
+
   backend:
-    build: 
-      context: ./backend
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
     container_name: autoflow_backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-autoflow}
-      - REDIS_URL=redis://redis:6379/0
+      <<: *backend-env
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
-      - ./backend:/app
-      - ./shared:/shared
+      - .:/app
+    command: >
+      uvicorn backend.main:app
+        --host 0.0.0.0
+        --port 8000
+        --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
-  worker:
+  # ── Celery Worker ──────────────────────────────────────────────────────────
+
+  celery_worker:
     build:
-      context: ./workers
-    container_name: autoflow_worker
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: autoflow_celery_worker
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-autoflow}
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      <<: *backend-env
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
-      - ./workers:/app
-      - ./shared:/shared
+      - .:/app
+    command: >
+      celery -A backend.workers.celery_app worker
+        --loglevel=info
+        --queues=default,high_priority,scheduled
+        --concurrency=4
+        --max-tasks-per-child=100
+        --hostname=worker@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A backend.workers.celery_app inspect ping -d worker@$$HOSTNAME | grep -q 'pong'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
+
+  # ── Celery Beat (Scheduler) ────────────────────────────────────────────────
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: autoflow_celery_beat
+    environment:
+      <<: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery_worker:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: >
+      celery -A backend.workers.celery_app beat
+        --loglevel=info
+        --scheduler redbeat.RedBeatScheduler
+    restart: unless-stopped
+
+  # ── Flower (Celery Dashboard) ──────────────────────────────────────────────
+
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: autoflow_flower
+    ports:
+      - "5555:5555"
+    environment:
+      <<: *backend-env
+      FLOWER_PORT: 5555
+      FLOWER_BROKER_API: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery_worker:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: >
+      celery -A backend.workers.celery_app flower
+        --port=5555
+        --broker=redis://redis:6379/0
+        --broker_api=redis://redis:6379/0
+        --persistent=true
+        --db=/app/flower.db
+    restart: unless-stopped
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
 
   frontend:
     build:
@@ -69,7 +181,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_BASE_URL=http://localhost:8000
+      VITE_API_URL: http://localhost:8000
     volumes:
       - ./frontend:/app
       - /app/node_modules

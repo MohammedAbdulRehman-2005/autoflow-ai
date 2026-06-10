@@ -3,9 +3,69 @@ const LOGS_KEY = 'autoflow_logs_data';
 
 export const INITIAL_TEMPLATES = [
   {
+    id: 'tpl-pdf-sys',
+    title: 'PDF Summary Generator',
+    description: 'Scans recently uploaded course syllabi, files, or scientific paper PDFs, and generates concise, structured AI takeaways, definitions, and study summaries.',
+    category: 'Document Processing',
+    installs: 1480,
+    trigger: 'PDF Uploaded',
+    action: 'Generate AI Summary',
+    complexity: 'Medium'
+  },
+  {
+    id: 'tpl-meet-notes',
+    title: 'Meeting Notes Workflow',
+    description: 'Takes uploaded seminar and consultation audio files, automatically transcribes the discussion, and crafts precise summaries, notes, and action items.',
+    category: 'Meeting Reminders',
+    installs: 920,
+    trigger: 'Meeting Recording Uploaded',
+    action: 'Generate Notes and Action Items',
+    complexity: 'Medium'
+  },
+  {
+    id: 'tpl-research-asst',
+    title: 'Research Assistant',
+    description: 'Queries open scientific citations and academic paper listings in real-time, delivering aggregated literature reports on any specified topic.',
+    category: 'AI Task Automation',
+    installs: 2450,
+    trigger: 'Research Query Submitted',
+    action: 'Generate Research Summary',
+    complexity: 'Advanced'
+  },
+  {
+    id: 'tpl-qna-asst',
+    title: 'Document Q&A Assistant',
+    description: 'Ingests heavy slides and texts so you can query questions on local lecture slides, returning targeted chapter mappings and responses.',
+    category: 'Document Processing',
+    installs: 1890,
+    trigger: 'Document Uploaded',
+    action: 'Answer Questions From Document',
+    complexity: 'Advanced'
+  },
+  {
+    id: 'tpl-email-class',
+    title: 'Email Classification Workflow',
+    description: 'Checks student and project inboxes to smartly label core priority threads, separating grading alerts and advisor schedules from standard newsletters.',
+    category: 'Email Automation',
+    installs: 1560,
+    trigger: 'New Email Received',
+    action: 'Categorize and Prioritize',
+    complexity: 'Easy'
+  },
+  {
+    id: 'tpl-smart-planner',
+    title: 'Smart Task Planner',
+    description: 'Input study routine and dates in pure English to build step-by-step revision timelines and automatically sync schedules into task databases.',
+    category: 'Student Productivity Automation',
+    installs: 1340,
+    trigger: 'Natural Language Task Input',
+    action: 'Generate Task Schedule',
+    complexity: 'Medium'
+  },
+  {
     id: 'tpl-1',
     title: 'Email Summary Generator',
-    description: 'Scans incoming academic and personal emails via Gmail, identifies crucial homework and assignment deadlines using Gemini, and logs summaries to a priority workspace dashboard.',
+    description: 'Scans incoming academic and personal emails via Gmail, identifies crucial homework and assignment deadlines using AI, and logs summaries to a priority workspace dashboard.',
     category: 'Email Automation',
     installs: 1840,
     trigger: 'Gmail: New Email Received',
@@ -20,66 +80,6 @@ export const INITIAL_TEMPLATES = [
     installs: 1420,
     trigger: 'Page Monitor: syllabus changed',
     action: 'Telegram Group Message Dispatch',
-    complexity: 'Easy'
-  },
-  {
-    id: 'tpl-3',
-    title: 'Meeting Reminder Automation',
-    description: 'Watches your calendar consultation schedules, tracks upcoming office hours or group paper discussions, and dispatches automated reminder check-ins.',
-    category: 'Meeting Reminders',
-    installs: 950,
-    trigger: 'Calendar: Consultation Scheduled',
-    action: 'SMTP Email Reminders',
-    complexity: 'Easy'
-  },
-  {
-    id: 'tpl-4',
-    title: 'Calendar Event Sync',
-    description: 'Automatically extracts milestones from uploaded course syllabus docs inside Google Drive and pushes synchronized dates to Google Calendar.',
-    category: 'Calendar Scheduling',
-    installs: 1560,
-    trigger: 'Drive: Syllabus PDF Detected',
-    action: 'Google Calendar Batch Sync',
-    complexity: 'Medium'
-  },
-  {
-    id: 'tpl-5',
-    title: 'Document Processing Pipeline',
-    description: 'Extracts critical formulas, chapters, and takeaways from research PDFs using Gemini to draft high-contrast study decks and flashcards.',
-    category: 'Document Processing',
-    installs: 2120,
-    trigger: 'Drive: Research PDF Upload',
-    action: 'Notion Course Dashboard Upload',
-    complexity: 'Advanced'
-  },
-  {
-    id: 'tpl-6',
-    title: 'Student Task Tracker',
-    description: 'Syncs task completion checklists, computes exam countdowns, and routes daily productivity checklists straight to desktop hubs.',
-    category: 'Student Productivity Automation',
-    installs: 1240,
-    trigger: 'Task Board: Due Status Changed',
-    action: 'Daily Summary Email Dispatch',
-    complexity: 'Medium'
-  },
-  {
-    id: 'tpl-7',
-    title: 'AI Research Assistant',
-    description: 'Launches structured web/PDF indexing upon entering custom topics, feeding synthesized paragraphs directly into active drafts.',
-    category: 'AI Task Automation',
-    installs: 2510,
-    trigger: 'Prompt Input: New Research Query',
-    action: 'Generate Study Guides & Summaries',
-    complexity: 'Advanced'
-  },
-  {
-    id: 'tpl-8',
-    title: 'Smart Notification Workflow',
-    description: 'Uses Gemini sentiment matching to filter critical updates, immediately paging urgent grades alerts to Telegram while routing minor items to daily logs.',
-    category: 'Telegram Notifications',
-    installs: 890,
-    trigger: 'Announcement: Grade Published',
-    action: 'Smart Priority Notification Dispatch',
     complexity: 'Easy'
   }
 ];
@@ -98,7 +98,7 @@ export const INITIAL_WORKFLOWS = [
     createdAt: '2026-05-15T09:00:00Z',
     nodes: [
       { id: 'n1', type: 'trigger', title: 'Email Monitoring', description: 'When a user receives important academic emails', icon: 'Email', config: {} },
-      { id: 'n2', type: 'ai_planner', title: 'Gemini AI Workflow Planner', description: 'Generate structured markdown study plans', icon: 'Gemini', config: {} },
+      { id: 'n2', type: 'ai_planner', title: 'AI Workflow Planner', description: 'Generate structured markdown study plans', icon: 'Brain', config: {} },
       { id: 'n3', type: 'action', title: 'Telegram Notification', description: 'Notify private Telegram study channel', icon: 'Telegram', config: {} }
     ],
     connections: [
@@ -109,7 +109,7 @@ export const INITIAL_WORKFLOWS = [
   {
     id: 'wf-2',
     name: 'Telegram Notification Workflow',
-    description: 'Monitors bibliography folder uploads, analyzes research paper drafts via Gemini, and broadcasts study flashcards.',
+    description: 'Monitors bibliography folder uploads, analyzes research paper drafts via AI, and broadcasts study flashcards.',
     status: 'active',
     lastRun: '2 hours ago',
     successRate: 100,
@@ -119,7 +119,7 @@ export const INITIAL_WORKFLOWS = [
     createdAt: '2026-05-20T10:15:00Z',
     nodes: [
       { id: 'trig-1', type: 'trigger', title: 'PDF Document Listener', description: 'At research folder watch', icon: 'GoogleDrive', config: {} },
-      { id: 'audit-2', type: 'ai_planner', title: 'Gemini Synthesizer', description: 'Draft revision notes and quiz cards', icon: 'Gemini', config: {} },
+      { id: 'audit-2', type: 'ai_planner', title: 'AI Synthesizer', description: 'Draft revision notes and quiz cards', icon: 'Brain', config: {} },
       { id: 'action-3', type: 'action', title: 'Telegram Push Alert', description: 'Deliver summaries directly to mobile logs', icon: 'CheckSquare', config: {} }
     ],
     connections: [
@@ -140,7 +140,7 @@ export const INITIAL_WORKFLOWS = [
     createdAt: '2026-04-12T14:30:00Z',
     nodes: [
       { id: 'cal-1', type: 'trigger', title: 'Booking Request Received', description: 'When coordinator books session', icon: 'Calendar', config: {} },
-      { id: 'match-2', type: 'ai_planner', title: 'Gemini Availability Solver', description: 'Skins time blocks and flags conflicts', icon: 'Gemini', config: {} },
+      { id: 'match-2', type: 'ai_planner', title: 'AI Availability Solver', description: 'Skins time blocks and flags conflicts', icon: 'Brain', config: {} },
       { id: 'green-3', type: 'action', title: 'Send Google Calendar Invite', description: 'Deploys calendar details & link', icon: 'Database', config: {} }
     ],
     connections: [
@@ -161,7 +161,7 @@ export const INITIAL_WORKFLOWS = [
     createdAt: '2026-05-28T16:00:00Z',
     nodes: [
       { id: 'trig-1', type: 'trigger', title: 'Set Routine Scheduler', description: 'Fires every day at 8:00 AM', icon: 'Clock', config: {} },
-      { id: 'ai-2', type: 'ai_planner', title: 'Gemini Syllabus Analyzer', description: 'Calculates countdown values and ranks tasks', icon: 'Gemini', config: {} },
+      { id: 'ai-2', type: 'ai_planner', title: 'AI Syllabus Analyzer', description: 'Calculates countdown values and ranks tasks', icon: 'Brain', config: {} },
       { id: 'act-3', type: 'action', title: 'Update Study Log Database', description: 'Populates active Notion study trackers', icon: 'BookOpen', config: {} }
     ],
     connections: [

@@ -1,481 +1,516 @@
-import { useState } from 'react';
+/**
+ * AutoFlow AI — Workflow Studio (React Flow Edition)
+ *
+ * Architecture:
+ *  - WorkflowDSL is the single source of truth (kept in `plannedDsl` state).
+ *  - React Flow graph is derived from the DSL every time the DSL changes.
+ *  - Persistent right-side AI Chat Panel drives incremental DSL edits.
+ *  - Node positions dragged by the user are persisted in `savedPositions` and
+ *    survive DSL updates so the canvas never unexpectedly jumps.
+ */
+
+import { useState, useCallback, useRef, useMemo } from 'react';
 import {
-  GitBranch,
-  Play,
-  Save,
-  Download,
-  AlertCircle,
-  Database,
-  Brain,
-  Zap,
-  Radio,
-  Server,
-  Plus,
-  ArrowRight,
-  Terminal,
-  RotateCw,
-  Sparkles,
-  RefreshCw,
-  Sliders,
-  CheckCircle2,
-  Trash2
-} from 'lucide-react';
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  Panel,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
-import { addWorkflow, simulateRunningWorkflow } from '../mockData';
+import {
+  GitBranch, Play, Save, Download, AlertCircle, Brain, Zap,
+  Terminal, RotateCw, Sparkles, RefreshCw, CheckCircle2, Send,
+  User, Bot, ChevronRight, Trash2, X
+} from 'lucide-react';
 
-export default function WorkflowBuilderPage() {
-  const [workflowName, setWorkflowName] = useState('Academic Email to Telegram Dispatcher');
-  const [workflowDesc, setWorkflowDesc] = useState('Monitors academic newsletters, extracts assignments, and flashes structured digests to student Telegram logs.');
-  
-  // Custom states that allow the user to modify the visual flow
-  const [triggerNode, setTriggerNode] = useState({
-    title: 'Email Monitoring',
-    desc: 'Scans incoming course syllabus lists',
-    channel: 'Gmail IMAP Poller',
-    icon: 'zap'
-  });
-  const [aiNode, setAINode] = useState({
-    title: 'Gemini AI Workflow Planner',
-    desc: 'Synthesizes assignment timelines and drafts concise task briefs',
-    channel: 'Gemini Pro Model',
-    icon: 'brain'
-  });
-  const [actionNode, setActionNode] = useState({
-    title: 'Telegram Notification',
-    desc: 'Pushes formatted study warnings to private group',
-    channel: 'Telegram Bot Botfather',
-    icon: 'server'
-  });
+import WorkflowNode from '../components/WorkflowNode';
+import { dslToFlow } from '../utils/flowLayout';
+import { workflowApi } from '../services/workflowApi';
 
-  const [naturalLanguagePrompt, setNaturalLanguagePrompt] = useState(
-    'Scan my student inbox for new assignment announcements from profs, make a study guide outline, and send a structured alert to my Telegram chat.'
+// ── React Flow custom node type map ──────────────────────────────────────────
+const nodeTypes = { workflowNode: WorkflowNode };
+
+// ── Validation Error Panel ────────────────────────────────────────────────────
+function ValidationPanel({ errors, warnings, onClose }) {
+  if (!errors?.length && !warnings?.length) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 space-y-2"
+    >
+      <div className="flex justify-between items-center">
+        <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
+          <AlertCircle className="h-3.5 w-3.5" />
+          Validation Failed — {errors.length} error(s), {warnings?.length || 0} warning(s)
+        </span>
+        <button onClick={onClose} className="text-xs text-slate-500 hover:text-white cursor-pointer">✕</button>
+      </div>
+      {errors.map((e, i) => (
+        <div key={i} className="text-[11px] text-rose-300 bg-rose-500/10 rounded-lg px-3 py-2">
+          <span className="font-bold">{e.code || 'ERROR'}</span>
+          {e.node_id && <span className="text-rose-400/70 ml-1">@{e.node_id}</span>}
+          <span className="text-rose-300/80 ml-1">— {e.message || e}</span>
+        </div>
+      ))}
+      {warnings?.map((w, i) => (
+        <div key={i} className="text-[11px] text-amber-300 bg-amber-500/10 rounded-lg px-3 py-2">
+          <span className="font-bold">⚠ {w.code || 'WARN'}</span>
+          <span className="text-amber-300/80 ml-1">— {w.message || w}</span>
+        </div>
+      ))}
+    </motion.div>
   );
+}
 
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState('config');
+// ── Chat Message Bubble ───────────────────────────────────────────────────────
+function ChatBubble({ msg }) {
+  const isUser = msg.role === 'user';
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+    >
+      <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs
+        ${isUser
+          ? 'bg-blue-500/20 border border-blue-500/40 text-blue-400'
+          : 'bg-purple-500/20 border border-purple-500/40 text-purple-400'}`}>
+        {isUser ? <User size={13} /> : <Bot size={13} />}
+      </div>
+      <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed
+        ${isUser
+          ? 'bg-blue-500/15 border border-blue-500/20 text-slate-200 rounded-tr-sm'
+          : 'bg-white/5 border border-white/10 text-slate-300 rounded-tl-sm'}`}>
+        {msg.content}
+        {msg.status === 'loading' && (
+          <span className="inline-flex gap-0.5 ml-1">
+            {[0, 0.15, 0.3].map((d, i) => (
+              <span key={i} className="w-1 h-1 rounded-full bg-purple-400 animate-bounce"
+                style={{ animationDelay: `${d}s` }} />
+            ))}
+          </span>
+        )}
+      </div>
+    </motion.div>
+  );
+}
 
-  // Logs terminal simulation state
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export default function WorkflowBuilderPage() {
+  // ── Canonical DSL state ───────────────────────────────────────────────────
+  const [plannedDsl, setPlannedDsl]     = useState(null);
+
+  // ── React Flow state ─────────────────────────────────────────────────────
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
+
+  // Saved manual positions: { nodeId: { x, y } }
+  const savedPositionsRef = useRef({});
+
+  // ── Chat state ────────────────────────────────────────────────────────────
+  const [chatHistory, setChatHistory]   = useState([{
+    role: 'assistant',
+    content: "Hi! I'm your AI Workflow Planner. Describe what you'd like to automate and I'll build it on the canvas. You can also ask me to modify the workflow at any time.",
+  }]);
+  const [chatInput, setChatInput]       = useState('');
+  const [isThinking, setIsThinking]     = useState(false);
+  const chatEndRef = useRef(null);
+
+  // ── Sidebar + Action state ────────────────────────────────────────────────
+  const [workflowName, setWorkflowName] = useState('My AI Workflow');
+  const [isSaving, setIsSaving]         = useState(false);
+  const [isRunning, setIsRunning]       = useState(false);
+  const [saveResult, setSaveResult]     = useState(null);
+  const [runResult, setRunResult]       = useState(null);
   const [terminalLogs, setTerminalLogs] = useState([]);
+  const [validationResult, setValidationResult] = useState(null);
+  const [showTerminal, setShowTerminal] = useState(false);
 
-  // Natural Language prompt translator simulator
-  const handleTranslatePrompt = () => {
-    setIsTranslating(true);
-    setTerminalLogs(prev => [...prev, '🔄 Initializing Gemini prompt analysis...']);
-    setTimeout(() => {
-      // Intelligently map nodes based on what are the keywords in the active prompt
-      const text = naturalLanguagePrompt.toLowerCase();
-      
-      let trig = { title: 'Email Monitoring', desc: 'Checks mailbox announcements from professors', channel: 'Gmail IMAP Poller', icon: 'zap' };
-      let action = { title: 'Telegram Notification', desc: 'Pushes formatted study summaries', channel: 'Telegram Bot Botfather', icon: 'server' };
+  const addLog = (msg) => setTerminalLogs(prev => [...prev, `${new Date().toLocaleTimeString()} › ${msg}`]);
 
-      if (text.includes('document') || text.includes('pdf') || text.includes('paper')) {
-        trig = { title: 'PDF Document Listener', desc: 'At course slides and research papers uploads', channel: 'Google Drive Asset Ingestion', icon: 'zap' };
-        action = { title: 'Notion Course Dashboard Upload', desc: 'Constructs custom summaries database card', channel: 'Notion Workspace API', icon: 'database' };
-      } else if (text.includes('calendar') || text.includes('appointment') || text.includes('meeting')) {
-        trig = { title: 'Booking Request Received', desc: 'Monitors calendar event booking invites', channel: 'Schedules Web Gateway', icon: 'zap' };
-        action = { title: 'Send Google Calendar Invite', desc: 'Sends event reminders with study block dates', channel: 'Google Calendar Sync', icon: 'server' };
-      } else if (text.includes('grade') || text.includes('portal')) {
-        trig = { title: 'Student Grade Monitor', desc: 'Scans grading portals for status fluctuations', channel: 'HTTP Canvas Web Scraper', icon: 'zap' };
-        action = { title: 'Local Alert Dispatcher', desc: 'Signals desktop urgent warning flash', channel: 'Desktop Notification Hub', icon: 'server' };
-      }
+  // ── Apply a new DSL to the canvas ────────────────────────────────────────
+  const applyDsl = useCallback((dsl) => {
+    setPlannedDsl(dsl);
+    const { nodes, edges } = dslToFlow(dsl, savedPositionsRef.current);
+    setRfNodes(nodes);
+    setRfEdges(edges);
+    if (dsl.name) setWorkflowName(dsl.name);
+  }, [setRfNodes, setRfEdges]);
 
-      setTriggerNode(trig);
-      setActionNode(action);
-      
-      setAINode({
-        title: 'Gemini AI Workflow Planner',
-        desc: 'Skins natural language text and schedules optimal study pipelines',
-        channel: 'Gemini Pro Model',
-        icon: 'brain'
-      });
+  // ── Handle node drag stop → save position ────────────────────────────────
+  const onNodeDragStop = useCallback((_, node) => {
+    savedPositionsRef.current[node.id] = node.position;
+    // Mark this node as having a manual position so dagre won't touch it
+    setRfNodes(nds => nds.map(n =>
+      n.id === node.id ? { ...n, data: { ...n.data, manualPosition: true } } : n
+    ));
+  }, [setRfNodes]);
 
-      setTerminalLogs(prev => [
-        ...prev,
-        '✨ Natural language triggers parsed by Gemini',
-        `✅ Extracted TRIGGER Node: [${trig.title}]`,
-        `✅ Extracted ACTION Node: [${action.title}]`,
-        '🚀 Student workspace flow chart built successfully.'
-      ]);
-      setIsTranslating(false);
-    }, 1500);
-  };
+  // ── Send message to AI ────────────────────────────────────────────────────
+  const sendMessage = useCallback(async () => {
+    const userText = chatInput.trim();
+    if (!userText || isThinking) return;
 
-  const handleSaveWorkflow = () => {
-    setIsSaving(true);
-    setTimeout(() => {
-      // Save directly to static local lists so that the Dashboard updates its values!
-      addWorkflow(
+    setChatInput('');
+    const userMsg = { role: 'user', content: userText };
+    const thinkingMsg = { role: 'assistant', content: '', status: 'loading' };
+
+    setChatHistory(prev => [...prev, userMsg, thinkingMsg]);
+    setIsThinking(true);
+
+    // Scroll to bottom
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+
+    addLog(`💬 User: ${userText}`);
+    addLog('🤖 Sending to AI planner...');
+
+    try {
+      const intent = {
+        goal: userText,
+        trigger: 'Auto-inferred from prompt',
+        integrations: [],
+      };
+
+      const result = await workflowApi.planWorkflow(
         workflowName,
-        workflowDesc,
-        triggerNode.title,
-        actionNode.title,
-        [triggerNode, aiNode, actionNode],
-        [{ from: 'trigger', to: 'ai' }, { from: 'ai', to: 'action' }]
+        intent,
+        plannedDsl, // pass existing DSL for incremental edits
       );
-      setIsSaving(false);
-      setTerminalLogs(prev => [...prev, `💾 Successfully persists [${workflowName}] to local workflow ledger.`]);
-      alert(`Workflow "${workflowName}" saved! You can find it deployed on your Dashboard page now.`);
-    }, 1200);
-  };
 
-  const handleRunWorkflow = () => {
-    setIsRunning(true);
-    setActiveTab('logs');
-    setTerminalLogs([
-      '⚡ Direct injection command fired manually.',
-      `🔍 Compiling graph sequence [${workflowName}]...`,
-      `📡 Executing Node 1 (Trigger): [${triggerNode.title}]`,
-      '📊 Ingest payload: { "auth": "ok", "timestamp": "2026-06-02T17:14:44Z", "actor": "Gemini System Client" }',
-      '🤖 Calling LLM core optimizer: sending target token arrays...'
-    ]);
+      const dsl = result.dsl || result;
+      applyDsl(dsl);
 
-    setTimeout(() => {
-      setTerminalLogs(prev => [
-        ...prev,
-        `🧠 Ingesting parameters into [${aiNode.title}]`,
-        '📝 LLM Response OK (Status: 200). Ensembled prompt translated standard arrays.'
+      const nodeCount = dsl.nodes?.length || 0;
+      const stats = result.graph_stats;
+      const summary = stats
+        ? `✅ Done! Generated a **${stats.node_count}-node workflow** using: ${stats.services_used?.join(', ') || 'various services'}.`
+        : `✅ Done! Generated a ${nodeCount}-node workflow.`;
+
+      setChatHistory(prev => [
+        ...prev.slice(0, -1),
+        { role: 'assistant', content: summary },
       ]);
+      addLog(`✅ AI planner returned DSL: "${dsl.name}" with ${nodeCount} node(s)`);
 
-      setTimeout(() => {
-        setTerminalLogs(prev => [
-          ...prev,
-          `📡 Transferring parsed payload to Node 3 (Action): [${actionNode.title}]`,
-          '🎯 Integration client response headers matched positive results!',
-          '🏁 Pipeline sequence finished. Duration: 1.48s. Return code: 0 SUCCESS.'
-        ]);
-        
-        // Push actual Execution logs in localStorage
-        const wfs = addWorkflow(workflowName, workflowDesc, triggerNode.title, actionNode.title);
-        simulateRunningWorkflow(wfs.id);
-        
-        setIsRunning(false);
-      }, 1000);
-    }, 1200);
+    } catch (err) {
+      const errMsg = err.message || 'AI planning failed.';
+      setChatHistory(prev => [
+        ...prev.slice(0, -1),
+        { role: 'assistant', content: `❌ Error: ${errMsg}` },
+      ]);
+      addLog(`❌ Planning error: ${errMsg}`);
+    } finally {
+      setIsThinking(false);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+  }, [chatInput, isThinking, workflowName, plannedDsl, applyDsl]);
+
+  // ── Save ──────────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!plannedDsl) {
+      addLog('⚠ No workflow to save. Chat with the AI first!');
+      return;
+    }
+    setIsSaving(true);
+    setValidationResult(null);
+    addLog('🔍 Validating workflow...');
+    try {
+      const validation = await workflowApi.validate(plannedDsl);
+      if (!validation.valid) {
+        setValidationResult(validation);
+        addLog(`❌ Validation failed with ${validation.errors.length} error(s).`);
+        setIsSaving(false);
+        return;
+      }
+      addLog('💾 Saving workflow...');
+      const desc = plannedDsl.description || '';
+      const created = await workflowApi.create({ name: workflowName, description: desc, dsl: plannedDsl });
+      setSaveResult(created);
+      addLog(`✅ Saved as "${created.name}" (ID: ${created.id})`);
+    } catch (err) {
+      addLog(`❌ Save error: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleExportWorkflow = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
-      workflowName,
-      workflowDesc,
-      nodes: [triggerNode, aiNode, actionNode]
-    }, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `${workflowName.toLowerCase().replace(/ /g, "_")}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    setTerminalLogs(prev => [...prev, '📥 Download anchor fired. Core JSON structure exported.']);
+  // ── Run ───────────────────────────────────────────────────────────────────
+  const handleRun = async () => {
+    if (!saveResult?.id) {
+      addLog('⚠ Save the workflow first before running.');
+      return;
+    }
+    setIsRunning(true);
+    setShowTerminal(true);
+    addLog(`⚡ Firing workflow "${saveResult.name}"...`);
+    try {
+      const run = await workflowApi.run(saveResult.id);
+      setRunResult(run);
+      addLog(`🚀 Run started! run_id: ${run.run_id}`);
+    } catch (err) {
+      addLog(`❌ Run error: ${err.message}`);
+    } finally {
+      setIsRunning(false);
+    }
   };
+
+  // ── Export ────────────────────────────────────────────────────────────────
+  const handleExport = () => {
+    if (!plannedDsl) return;
+    const blob = new Blob([JSON.stringify(plannedDsl, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${workflowName.toLowerCase().replace(/ /g, '_')}.json`;
+    a.click();
+    addLog('📥 DSL exported.');
+  };
+
+  // ── Quick Templates ───────────────────────────────────────────────────────
+  const templates = [
+    "Scan my inbox for new emails, summarize with AI, then send a Slack notification",
+    "Book an appointment from a Google Form submission and send confirmation via SMS",
+    "Every Monday at 9 AM, read this week's sales from Google Sheets and email a report",
+    "When a webhook fires, extract key data using AI and append a row to Airtable",
+    "Send WhatsApp reminders 24 hours before any Google Calendar event",
+  ];
 
   return (
-    <div className="space-y-8 select-none text-left">
-      
-      {/* Visual Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white font-display flex items-center gap-2">
-            <GitBranch className="h-8 w-8 text-blue-500" />
-            <span>Workflow Studio</span>
-          </h1>
-          <p className="text-sm text-slate-400 mt-1 font-sans">
-            Draft, simulate and deploy natural language workflows using visual connectors.
-          </p>
-        </div>
+    <div className="flex h-[calc(100vh-7rem)] gap-0 overflow-hidden -m-6 select-none">
 
-        {/* Builder top buttons */}
-        <div className="flex items-center space-x-2.5 self-start sm:self-auto">
-          <button
-            onClick={handleRunWorkflow}
-            disabled={isRunning || isSaving || isTranslating}
-            className="flex items-center space-x-1.5 px-3.5 py-2 hover:border-cyan-500/35 bg-cyan-500/15 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500 hover:text-slate-950 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 shadow-sm"
-          >
-            {isRunning ? <RotateCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}
-            <span>Run Workflow</span>
-          </button>
-          
-          <button
-            onClick={handleSaveWorkflow}
-            disabled={isRunning || isSaving || isTranslating}
-            className="flex items-center space-x-1.5 px-3.5 py-2 hover:border-blue-500/35 bg-blue-500/15 text-blue-400 border border-blue-500/20 hover:bg-blue-500 hover:text-slate-900 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 shadow-sm"
-          >
-            {isSaving ? <RotateCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            <span>Save Workflow</span>
-          </button>
-
-          <button
-            onClick={handleExportWorkflow}
-            disabled={isRunning || isSaving || isTranslating}
-            className="flex items-center space-x-1.5 px-3.5 py-2 border border-white/10 bg-white/5 hover:bg-white/10 text-slate-350 hover:text-white rounded-xl text-xs font-semibold cursor-pointer transition-all shadow-sm"
-            title="Export Manifest"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </button>
-        </div>
+      {/* ── Left Toolbar ──────────────────────────────────────────────────── */}
+      <div className="w-14 flex-shrink-0 flex flex-col items-center gap-3 py-4 border-r border-white/8 bg-slate-950/60 backdrop-blur-md">
+        <button
+          onClick={handleRun}
+          disabled={isRunning || !saveResult}
+          title="Run Workflow"
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-cyan-500/15 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500 hover:text-slate-950 transition-all cursor-pointer disabled:opacity-30"
+        >
+          {isRunning ? <RotateCw size={16} className="animate-spin" /> : <Play size={16} className="fill-current" />}
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={isSaving || !plannedDsl}
+          title="Save Workflow"
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-blue-500/15 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white transition-all cursor-pointer disabled:opacity-30"
+        >
+          {isSaving ? <RotateCw size={16} className="animate-spin" /> : <Save size={16} />}
+        </button>
+        <button
+          onClick={handleExport}
+          disabled={!plannedDsl}
+          title="Export DSL JSON"
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10 hover:text-white transition-all cursor-pointer disabled:opacity-30"
+        >
+          <Download size={16} />
+        </button>
+        <div className="h-px w-6 bg-white/10 my-1" />
+        <button
+          onClick={() => setShowTerminal(v => !v)}
+          title="Toggle Terminal"
+          className={`w-9 h-9 rounded-xl flex items-center justify-center border transition-all cursor-pointer
+            ${showTerminal
+              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+              : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'}`}
+        >
+          <Terminal size={16} />
+        </button>
       </div>
 
-      {/* Main visual interface panel columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left column: AI Generator & Workflow configuration parameters */}
-        <div className="space-y-6">
-          
-          {/* AI natural language translation input boxes */}
-          <div className="border border-white/10 rounded-3xl bg-white/5 p-5 backdrop-blur-lg relative overflow-hidden shadow-md">
-            <div className="absolute top-0 right-0 h-20 w-20 rounded-full bg-blue-500/10 blur-xl pointer-events-none"></div>
-            
-            <div className="flex items-center space-x-1.5 mb-3.5">
-              <Sparkles className="h-4.5 w-4.5 text-cyan-400 animate-pulse" />
-              <h3 className="text-2xs font-bold text-cyan-400 tracking-wider font-mono">GENERATE PIPELINE VIA LLM</h3>
-            </div>
+      {/* ── Canvas ────────────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Toolbar banner */}
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/8 bg-slate-950/40 backdrop-blur-sm flex-shrink-0">
+          <GitBranch size={16} className="text-blue-400" />
+          <input
+            value={workflowName}
+            onChange={e => setWorkflowName(e.target.value)}
+            className="flex-1 bg-transparent text-sm font-bold text-white outline-none placeholder-slate-500 max-w-xs"
+            placeholder="Workflow Name..."
+          />
+          {saveResult && (
+            <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
+              <CheckCircle2 size={11} /> Saved · {saveResult.id?.slice(0, 8)}
+            </span>
+          )}
+          {runResult && (
+            <span className="text-[10px] text-cyan-400 font-mono flex items-center gap-1">
+              <Play size={11} className="fill-current" /> Run · {runResult.run_id?.slice(0, 8)}
+            </span>
+          )}
+        </div>
 
-            <textarea
-              value={naturalLanguagePrompt}
-              onChange={(e) => setNaturalLanguagePrompt(e.target.value)}
-              placeholder="Describe your target app integration triggers..."
-              rows={4}
-              className="w-full text-xs text-slate-200 placeholder-slate-500 bg-white/5 border border-white/10 rounded-xl p-3 outline-none resize-none hover:border-white/20 focus:border-cyan-500/50 focus:bg-slate-900/20 transition-all font-sans font-semibold shadow-inner"
+        {/* Validation errors */}
+        {validationResult && (
+          <div className="px-4 py-2 flex-shrink-0">
+            <ValidationPanel
+              errors={validationResult.errors}
+              warnings={validationResult.warnings}
+              onClose={() => setValidationResult(null)}
+            />
+          </div>
+        )}
+
+        {/* React Flow Canvas */}
+        <div className="flex-1 relative">
+          <ReactFlow
+            nodes={rfNodes}
+            edges={rfEdges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            onNodeDragStop={onNodeDragStop}
+            fitView
+            fitViewOptions={{ padding: 0.3, maxZoom: 1.2 }}
+            minZoom={0.2}
+            maxZoom={2}
+            proOptions={{ hideAttribution: true }}
+            style={{ background: 'transparent' }}
+          >
+            <Background
+              color="#1e293b"
+              gap={20}
+              size={1}
+              style={{ opacity: 0.6 }}
+            />
+            <Controls
+              className="!bg-slate-900/80 !border-white/10 !rounded-xl [&>button]:!bg-transparent [&>button]:!text-slate-400 [&>button:hover]:!text-white [&>button]:!border-white/10"
+            />
+            <MiniMap
+              nodeColor={(n) => n.data?.colors?.accent || '#3b82f6'}
+              maskColor="rgba(2,6,23,0.7)"
+              className="!bg-slate-900/80 !border-white/10 !rounded-xl"
             />
 
-            <button
-               onClick={handleTranslatePrompt}
-               disabled={isTranslating}
-               className="w-full mt-3 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-               {isTranslating ? (
-                <>
-                   <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                   <span>Configuring Schema...</span>
-                </>
-              ) : (
-                <>
-                   <Sparkles className="h-3.5 w-3.5" />
-                   <span>Translate to Trigger Nodes</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Workflow details edit cards */}
-          <div className="border border-white/10 rounded-3xl bg-white/5 p-5 backdrop-blur-lg space-y-4 shadow-md">
-            <h3 className="text-sm font-bold text-white mb-2 font-display">Workflow Configurations</h3>
-            
-            <div className="space-y-1 text-left">
-              <label className="text-[10px] font-bold text-slate-450 tracking-wider font-display">WORKFLOW TITLE</label>
-              <input
-                type="text"
-                value={workflowName}
-                onChange={(e) => setWorkflowName(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 px-3.5 text-xs text-white placeholder-slate-550 outline-none hover:border-white/20 focus:border-blue-500/50 focus:bg-slate-900/40"
-              />
-            </div>
-
-            <div className="space-y-1 text-left">
-              <label className="text-[10px] font-bold text-slate-450 tracking-wider font-display">DESCRIPTION</label>
-              <input
-                type="text"
-                value={workflowDesc}
-                onChange={(e) => setWorkflowDesc(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 px-3.5 text-xs text-white placeholder-slate-550 outline-none hover:border-white/20 focus:border-blue-500/50 focus:bg-slate-900/40"
-              />
-            </div>
-          </div>
-
-          {/* Node parameter tweaking card */}
-          <div className="border border-white/10 rounded-3xl bg-white/5 p-5 backdrop-blur-lg shadow-md">
-            <h3 className="text-sm font-bold text-white mb-3 font-display">Trigger Environment</h3>
-            <div className="space-y-3.5 text-left text-xs text-slate-400 font-medium">
-              <div className="flex justify-between pb-1 border-b border-white/10">
-                <span>Webhook SSL Check</span>
-                <span className="text-cyan-400 font-mono font-bold">ENFORCED (TLS)</span>
-              </div>
-              <div className="flex justify-between pb-1 border-b border-white/10">
-                <span>Max Request Queuing</span>
-                <span className="font-mono">10,000 req/sec</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Gemini Backoff Limit</span>
-                <span className="font-mono">5 Retries</span>
-              </div>
-            </div>
-          </div>
-
+            {/* Empty state overlay */}
+            {rfNodes.length === 0 && (
+              <Panel position="top-center">
+                <div className="mt-20 flex flex-col items-center gap-4 text-center pointer-events-none">
+                  <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center">
+                    <Sparkles size={32} className="text-blue-400 animate-pulse" />
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-lg">Your canvas is empty</p>
+                    <p className="text-slate-400 text-sm mt-1">Chat with the AI assistant →</p>
+                  </div>
+                </div>
+              </Panel>
+            )}
+          </ReactFlow>
         </div>
 
-        {/* Center/Right side: The Visual Node Canvas flowchart viewport & logs */}
-        <div className="lg:col-span-2 space-y-6">
-          
-          {/* Canvas tab selectors */}
-          <div className="flex border-b border-white/10">
-            <button
-              onClick={() => setActiveTab('config')}
-              className={`pb-3.5 px-5 text-xs font-bold border-b-2 mr-2 cursor-pointer transition-all ${
-                activeTab === 'config'
-                  ? 'border-blue-500 text-white'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
+        {/* Terminal Drawer */}
+        <AnimatePresence>
+          {showTerminal && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 160, opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="border-t border-white/10 bg-slate-950/80 backdrop-blur-md overflow-hidden flex-shrink-0"
             >
-              Visual Flowchart Canvas
-            </button>
-            <button
-              onClick={() => setActiveTab('logs')}
-              className={`pb-3.5 px-5 text-xs font-bold border-b-2 cursor-pointer transition-all flex items-center space-x-1.5 ${
-                activeTab === 'logs'
-                  ? 'border-cyan-500 text-white'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Terminal className="h-3.5 w-3.5 text-cyan-400" />
-              <span>Flow Test Log Output Terminal</span>
-            </button>
+              <div className="flex items-center justify-between px-4 py-2 border-b border-white/8">
+                <span className="text-[10px] font-bold text-slate-500 font-mono tracking-widest">EXECUTION TERMINAL</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setTerminalLogs([])} className="text-[10px] text-rose-400 font-bold cursor-pointer hover:underline">CLEAR</button>
+                  <button onClick={() => setShowTerminal(false)} className="text-slate-500 hover:text-white cursor-pointer"><X size={12} /></button>
+                </div>
+              </div>
+              <div className="px-4 py-2 space-y-0.5 overflow-y-auto h-[120px] font-mono text-[11px] text-emerald-400">
+                {terminalLogs.length === 0
+                  ? <div className="text-slate-500 italic">No logs yet.</div>
+                  : terminalLogs.map((log, i) => <div key={i}>{log}</div>)
+                }
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* ── Right AI Chat Panel ────────────────────────────────────────────── */}
+      <div className="w-[340px] flex-shrink-0 flex flex-col border-l border-white/8 bg-slate-950/60 backdrop-blur-md">
+
+        {/* Chat Header */}
+        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-white/8 flex-shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500/30 to-blue-500/30 border border-purple-500/30 flex items-center justify-center">
+            <Brain size={14} className="text-purple-400" />
           </div>
-
-          <div className="relative min-h-[460px] border border-white/10 rounded-3xl bg-[#020617]/30 backdrop-blur-lg p-8 flex flex-col justify-between overflow-hidden shadow-md">
-            {/* Grid dot pattern overlay */}
-            <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none opacity-40"></div>
-
-            <AnimatePresence mode="wait">
-              {activeTab === 'config' ? (
-                <motion.div
-                  key="canvas"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  className="flex-1 flex flex-col items-center justify-center space-y-8 relative z-10 py-4"
-                >
-                  
-                  {/* Node 1: Webhook Trigger Node */}
-                  <motion.div
-                    whileHover={{ scale: 1.02, y: -2 }}
-                    className="w-full max-w-md p-4 bg-white/5 border-2 border-blue-500/20 hover:border-blue-500/40 rounded-2xl flex items-center justify-between text-left relative shadow-lg shadow-blue-500/2 shadow-blue-600/5 backdrop-blur-md group"
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] border border-blue-500/10">
-                        <Zap className="h-5 w-5 animate-pulse" />
-                      </div>
-                      <div>
-                        <span className="text-[10px] font-bold text-blue-400 tracking-widest font-mono">STAGE 1: TRIGGER NODE</span>
-                        <h4 className="text-sm font-bold text-white mt-0.5 font-display">{triggerNode.title}</h4>
-                        <p className="text-2xs text-slate-400 mt-1">{triggerNode.desc}</p>
-                      </div>
-                    </div>
-                    <div className="text-right text-3xs font-mono font-semibold text-slate-500 bg-white/5 border border-white/10 rounded p-1">
-                      {triggerNode.channel}
-                    </div>
-                  </motion.div>
-
-                  {/* Flow Connection Arrow 1 */}
-                  <div className="relative h-10 w-full flex items-center justify-center">
-                    <svg className="absolute inset-0 h-10 w-full" xmlns="http://www.w3.org/2000/svg">
-                      <line x1="50%" y1="0%" x2="50%" y2="100%" stroke="url(#bluecyan)" strokeWidth="2.5" strokeDasharray="4 4" />
-                      <defs>
-                        <linearGradient id="bluecyan" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#3b82f6" />
-                          <stop offset="100%" stopColor="#06b6d4" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                    <div className="p-1.5 rounded-full border border-blue-500/20 bg-slate-950 relative z-10 text-cyan-400">
-                      <ArrowRight className="h-3.5 w-3.5 rotate-90" />
-                    </div>
-                  </div>
-
-                  {/* Node 2: AI Planner Node (Gemini) */}
-                  <motion.div
-                    whileHover={{ scale: 1.02, y: -2 }}
-                    className="w-full max-w-md p-4 bg-gradient-to-r from-purple-500/5 via-white/5 to-blue-500/5 border-2 border-purple-500/20 hover:border-purple-500/40 rounded-2xl flex items-center justify-between text-left relative shadow-lg shadow-purple-500/2 shadow-indigo-600/5 backdrop-blur-md group"
-                  >
-                    <div className="absolute top-0 right-0 h-10 w-10 bg-purple-500/5 blur-lg rounded-full"></div>
-                    <div className="flex items-center space-x-4">
-                      <div className="p-3 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/10">
-                        <Brain className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <span className="text-[10px] font-bold text-purple-400 tracking-widest font-mono">STAGE 2: AI PLANNER</span>
-                        <h4 className="text-sm font-bold text-white mt-0.5 font-display">{aiNode.title}</h4>
-                        <p className="text-2xs text-slate-400 mt-1">{aiNode.desc}</p>
-                      </div>
-                    </div>
-                    <div className="text-right text-3xs font-mono font-semibold text-slate-500 bg-white/5 border border-white/10 rounded p-1">
-                      {aiNode.channel}
-                    </div>
-                  </motion.div>
-
-                  {/* Flow Connection Arrow 2 */}
-                  <div className="relative h-10 w-full flex items-center justify-center">
-                    <svg className="absolute inset-0 h-10 w-full" xmlns="http://www.w3.org/2000/svg">
-                      <line x1="50%" y1="0%" x2="50%" y2="100%" stroke="url(#cyanblue)" strokeWidth="2.5" strokeDasharray="4 4" />
-                      <defs>
-                        <linearGradient id="cyanblue" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#c084fc" />
-                          <stop offset="100%" stopColor="#06b6d4" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                    <div className="p-1.5 rounded-full border border-purple-500/20 bg-slate-950 relative z-10 text-cyan-400">
-                      <ArrowRight className="h-3.5 w-3.5 rotate-90" />
-                    </div>
-                  </div>
-
-                  {/* Node 3: Outpost Action Node */}
-                  <motion.div
-                    whileHover={{ scale: 1.02, y: -2 }}
-                    className="w-full max-w-md p-4 bg-white/5 border-2 border-cyan-500/20 hover:border-cyan-500/40 rounded-2xl flex items-center justify-between text-left relative shadow-lg shadow-cyan-500/2 shadow-cyan-600/5 backdrop-blur-md group"
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/10">
-                        <Server className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <span className="text-[10px] font-bold text-cyan-400 tracking-widest font-mono">STAGE 3: ACTION NODE</span>
-                        <h4 className="text-sm font-bold text-white mt-0.5 font-display">{actionNode.title}</h4>
-                        <p className="text-2xs text-slate-400 mt-1">{actionNode.desc}</p>
-                      </div>
-                    </div>
-                    <div className="text-right text-3xs font-mono font-semibold text-slate-500 bg-white/5 border border-white/10 rounded p-1">
-                      {actionNode.channel}
-                    </div>
-                  </motion.div>
-
-                </motion.div>
-              ) : (
-                
-                // Terminal screen interface
-                <motion.div
-                  key="logs"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  className="flex-1 flex flex-col font-mono text-xs text-emerald-400 text-left bg-slate-950/50 backdrop-blur-md rounded-2xl p-5 border border-white/10 relative z-10 space-y-2 overflow-y-auto max-h-[380px] shadow-lg"
-                >
-                  <div className="flex items-center justify-between text-slate-550 border-b border-white/10 pb-2.5 mb-2.5">
-                    <span className="text-3xs font-bold">FLOW SANDBOX OUTPUT SHELL</span>
-                    <button
-                      onClick={() => setTerminalLogs([])}
-                      className="text-3xs text-rose-400 font-bold hover:underline cursor-pointer"
-                    >
-                      CLEAR TERMINAL
-                    </button>
-                  </div>
-                  {terminalLogs.length === 0 ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-center space-y-2 py-10">
-                      <Terminal className="h-7 w-7 text-slate-600 animate-pulse" />
-                      <span>Console idle. Click "Run Workflow" above or type triggers to dispatch event frames.</span>
-                    </div>
-                  ) : (
-                    terminalLogs.map((log, i) => <div key={i}>{log}</div>)
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            
+          <div>
+            <p className="text-sm font-bold text-white">AI Planner</p>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] text-emerald-400 font-mono">
+                {isThinking ? 'Thinking...' : 'Ready'}
+              </span>
+            </div>
           </div>
-
+          <button
+            onClick={() => setChatHistory(prev => [prev[0]])}
+            title="Clear chat history"
+            className="ml-auto text-slate-600 hover:text-slate-300 cursor-pointer transition-colors"
+          >
+            <Trash2 size={13} />
+          </button>
         </div>
 
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0">
+          {chatHistory.map((msg, i) => <ChatBubble key={i} msg={msg} />)}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Quick Templates */}
+        <div className="px-4 pt-2 pb-2 border-t border-white/8 flex-shrink-0">
+          <p className="text-[9px] font-bold text-slate-600 tracking-widest uppercase mb-2">Quick Templates</p>
+          <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
+            {templates.map((t, i) => (
+              <button
+                key={i}
+                onClick={() => setChatInput(t)}
+                className="text-left text-[10px] text-slate-400 hover:text-white bg-white/3 hover:bg-white/8 border border-white/8 hover:border-white/15 rounded-xl px-3 py-1.5 transition-all cursor-pointer truncate font-sans"
+              >
+                👉 {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Chat Input */}
+        <div className="px-4 pt-2 pb-4 flex-shrink-0 border-t border-white/8">
+          <div className="flex gap-2 items-end">
+            <textarea
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              rows={2}
+              placeholder={plannedDsl
+                ? "Modify the workflow… (e.g. 'Add a Slack notification on failure')"
+                : "Describe your automation… (e.g. 'Send a daily email summary of new leads')"}
+              className="flex-1 text-xs text-slate-200 placeholder-slate-600 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 outline-none resize-none hover:border-white/20 focus:border-purple-500/50 transition-all font-sans"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!chatInput.trim() || isThinking}
+              className="flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white flex items-center justify-center cursor-pointer disabled:opacity-40 transition-all shadow-lg"
+            >
+              {isThinking
+                ? <RefreshCw size={14} className="animate-spin" />
+                : <Send size={14} />}
+            </button>
+          </div>
+          <p className="text-[9px] text-slate-600 mt-1.5 text-center">
+            {plannedDsl ? '✨ Incremental edit mode — node IDs preserved' : 'Press Enter to send · Shift+Enter for newline'}
+          </p>
+        </div>
       </div>
     </div>
   );
