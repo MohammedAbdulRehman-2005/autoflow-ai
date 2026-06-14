@@ -1,8 +1,6 @@
 from fastapi import APIRouter
 
-from backend.gmail.service import (
-    send_test_email
-)
+from backend.gmail.service import send_test_email
 
 router = APIRouter(
     prefix="/gmail",
@@ -11,8 +9,6 @@ router = APIRouter(
 
 
 @router.post("/test-send")
-def test_send():
+def test_send(email: str):
 
-    return send_test_email(
-        "test@gmail.com"
-    )
+    return send_test_email(email)

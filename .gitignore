@@ -51,3 +51,8 @@ celerybeat.pid
 # =========================
 *.log
 coverage/
+# Gmail OAuth secrets
+backend/gmail/credentials.json
+
+# Local environment variables
+.env
