@@ -130,7 +130,15 @@ export default function DashboardPage() {
     setGenResult(null);
     setGenError(null);
     try {
-      const result = await workflowApi.planWorkflow(promptValue.trim());
+      const prompt = promptValue.trim();
+      // Derive a short workflow name from the first sentence of the prompt
+      const autoName = prompt.length > 50 ? prompt.slice(0, 47) + '...' : prompt;
+      const intent = {
+        goal: prompt,
+        trigger: 'Auto-inferred from prompt',
+        integrations: [],
+      };
+      const result = await workflowApi.planWorkflow(autoName, intent);
       setGenResult(result);
       setPromptValue('');
       // Refresh list to show the newly created workflow

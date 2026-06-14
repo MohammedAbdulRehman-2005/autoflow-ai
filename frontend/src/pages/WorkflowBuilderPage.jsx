@@ -122,6 +122,12 @@ export default function WorkflowBuilderPage() {
   const [isThinking, setIsThinking]     = useState(false);
   const chatEndRef = useRef(null);
 
+  // ── Follow-up question context ────────────────────────────────────────────
+  // When the AI needs clarification, we store the original prompt and asked
+  // questions here. On the user's next reply we fuse them together and generate.
+  const [pendingContext, setPendingContext] = useState(null);
+  // pendingContext shape: { originalPrompt: string, questions: string[] }
+
   // ── Sidebar + Action state ────────────────────────────────────────────────
   const [workflowName, setWorkflowName] = useState('My AI Workflow');
   const [isSaving, setIsSaving]         = useState(false);
@@ -152,6 +158,65 @@ export default function WorkflowBuilderPage() {
     ));
   }, [setRfNodes]);
 
+  // ── Clarification heuristic ───────────────────────────────────────────────
+  // Returns true if the prompt is specific enough to generate without follow-ups.
+  const isPromptSpecific = (text) => {
+    const lower = text.toLowerCase();
+    // Specific enough if: mentions a trigger (when, every, schedule, webhook, form),
+    // an action (send, email, slack, notify, create, append), and is reasonably long.
+    const hasTrigger = /\b(when|every|schedule|cron|webhook|form|daily|weekly|monthly|morning|night|hour)\b/.test(lower);
+    const hasAction  = /\b(send|email|notify|slack|whatsapp|sms|create|save|append|post|update|generate|summarize|report)\b/.test(lower);
+    const isLong     = text.trim().split(/\s+/).length >= 10;
+    return (hasTrigger && hasAction) || isLong;
+  };
+
+  // ── Build clarifying questions for vague prompts ──────────────────────────
+  const buildClarifyingQuestions = (prompt) => {
+    const lower = prompt.toLowerCase();
+    const questions = [];
+
+    if (!/\b(when|every|schedule|cron|webhook|form|daily|weekly|monthly|morning|night|hour|trigger|monday|friday)\b/.test(lower)) {
+      questions.push('⏰ **When should this run?** (e.g. every Monday at 9 AM, when a form is submitted, when a webhook fires, or manually)');
+    }
+    if (!/\b(email|slack|whatsapp|sms|sheets|notion|airtable|hubspot|http|telegram|calendar|drive)\b/.test(lower)) {
+      questions.push('🔌 **Which apps or services should it use?** (e.g. Gmail, Slack, Google Sheets, WhatsApp, Notion)');
+    }
+    if (questions.length === 0) {
+      questions.push('📋 **Any specific details?** (e.g. email addresses, sheet names, Slack channels, message templates)');
+    }
+    return questions.slice(0, 2); // max 2 questions to stay concise
+  };
+
+  // ── Generate workflow from a fully-resolved prompt ────────────────────────
+  const generateFromPrompt = useCallback(async (fullPrompt, name) => {
+    addLog('🤖 Sending to AI planner...');
+    const intent = {
+      goal: fullPrompt,
+      trigger: 'Auto-inferred from prompt',
+      integrations: [],
+    };
+    const result = await workflowApi.planWorkflow(
+      name || workflowName,
+      intent,
+      plannedDsl,
+    );
+
+    const dsl = result.dsl || result;
+    applyDsl(dsl);
+
+    const nodeCount = dsl.nodes?.length || 0;
+    const stats = result.graph_stats;
+    const summary = stats
+      ? `✅ Done! Built a **${stats.node_count}-node** workflow using: ${stats.services_used?.join(', ') || 'various services'}. You can drag nodes around, then hit **Save** when ready.`
+      : `✅ Done! Built a ${nodeCount}-node workflow. Hit **Save** when ready.`;
+
+    setChatHistory(prev => [
+      ...prev.slice(0, -1),
+      { role: 'assistant', content: summary },
+    ]);
+    addLog(`✅ AI planner returned DSL: "${dsl.name}" with ${nodeCount} node(s)`);
+  }, [workflowName, plannedDsl, applyDsl]);
+
   // ── Send message to AI ────────────────────────────────────────────────────
   const sendMessage = useCallback(async () => {
     const userText = chatInput.trim();
@@ -163,53 +228,53 @@ export default function WorkflowBuilderPage() {
 
     setChatHistory(prev => [...prev, userMsg, thinkingMsg]);
     setIsThinking(true);
-
-    // Scroll to bottom
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-
     addLog(`💬 User: ${userText}`);
-    addLog('🤖 Sending to AI planner...');
 
     try {
-      const intent = {
-        goal: userText,
-        trigger: 'Auto-inferred from prompt',
-        integrations: [],
-      };
+      // ── Case A: User is answering a pending follow-up question ───────────
+      if (pendingContext) {
+        // Fuse original prompt + the user's clarification answers
+        const enrichedPrompt = `${pendingContext.originalPrompt}\n\nAdditional details from user: ${userText}`;
+        setPendingContext(null);
+        await generateFromPrompt(enrichedPrompt, workflowName);
+        return;
+      }
 
-      const result = await workflowApi.planWorkflow(
-        workflowName,
-        intent,
-        plannedDsl, // pass existing DSL for incremental edits
-      );
+      // ── Case B: First message or an incremental edit on an existing DSL ──
+      // If there's already a canvas AND the prompt is a modification request, skip clarification
+      const isModification = !!plannedDsl;
+      const specific = isModification || isPromptSpecific(userText);
 
-      const dsl = result.dsl || result;
-      applyDsl(dsl);
+      if (!specific) {
+        // ── Ask clarifying questions ────────────────────────────────────────
+        const questions = buildClarifyingQuestions(userText);
+        const questionText = `Great idea! Before I build this, I have a couple of quick questions to make it more accurate:\n\n${questions.join('\n\n')}\n\nFeel free to answer both in one message!`;
 
-      const nodeCount = dsl.nodes?.length || 0;
-      const stats = result.graph_stats;
-      const summary = stats
-        ? `✅ Done! Generated a **${stats.node_count}-node workflow** using: ${stats.services_used?.join(', ') || 'various services'}.`
-        : `✅ Done! Generated a ${nodeCount}-node workflow.`;
+        setPendingContext({ originalPrompt: userText, questions });
+        setChatHistory(prev => [
+          ...prev.slice(0, -1),
+          { role: 'assistant', content: questionText },
+        ]);
+        addLog('❓ AI asking clarifying questions...');
+        return;
+      }
 
-      setChatHistory(prev => [
-        ...prev.slice(0, -1),
-        { role: 'assistant', content: summary },
-      ]);
-      addLog(`✅ AI planner returned DSL: "${dsl.name}" with ${nodeCount} node(s)`);
+      // ── Specific enough — generate directly ─────────────────────────────
+      await generateFromPrompt(userText, workflowName);
 
     } catch (err) {
       const errMsg = err.message || 'AI planning failed.';
       setChatHistory(prev => [
         ...prev.slice(0, -1),
-        { role: 'assistant', content: `❌ Error: ${errMsg}` },
+        { role: 'assistant', content: `❌ ${errMsg}` },
       ]);
       addLog(`❌ Planning error: ${errMsg}`);
     } finally {
       setIsThinking(false);
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
-  }, [chatInput, isThinking, workflowName, plannedDsl, applyDsl]);
+  }, [chatInput, isThinking, workflowName, plannedDsl, pendingContext, generateFromPrompt]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -492,10 +557,19 @@ export default function WorkflowBuilderPage() {
                 }
               }}
               rows={2}
-              placeholder={plannedDsl
-                ? "Modify the workflow… (e.g. 'Add a Slack notification on failure')"
-                : "Describe your automation… (e.g. 'Send a daily email summary of new leads')"}
-              className="flex-1 text-xs text-slate-200 placeholder-slate-600 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 outline-none resize-none hover:border-white/20 focus:border-purple-500/50 transition-all font-sans"
+              placeholder={
+                pendingContext
+                  ? "Answer the questions above…"
+                  : plannedDsl
+                  ? "Modify the workflow… (e.g. 'Add a Slack notification on failure')"
+                  : "Describe your automation… (e.g. 'Send a daily email summary of new leads')"
+              }
+              className={`flex-1 text-xs text-slate-200 placeholder-slate-600 bg-white/5 border rounded-xl px-3 py-2.5 outline-none resize-none transition-all font-sans
+                ${
+                  pendingContext
+                    ? 'border-amber-500/40 focus:border-amber-500/70 hover:border-amber-500/50'
+                    : 'border-white/10 hover:border-white/20 focus:border-purple-500/50'
+                }`}
             />
             <button
               onClick={sendMessage}
@@ -508,7 +582,11 @@ export default function WorkflowBuilderPage() {
             </button>
           </div>
           <p className="text-[9px] text-slate-600 mt-1.5 text-center">
-            {plannedDsl ? '✨ Incremental edit mode — node IDs preserved' : 'Press Enter to send · Shift+Enter for newline'}
+                        {pendingContext
+              ? <span className="text-amber-400">⏳ Awaiting your answers to generate the workflow</span>
+              : plannedDsl
+              ? '✨ Incremental edit mode — node IDs preserved'
+              : 'Press Enter to send · Shift+Enter for newline'}
           </p>
         </div>
       </div>
