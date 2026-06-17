@@ -95,10 +95,16 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, onOpenSettings })
           </NavLink>
         ))}
 
-        {/* Settings button explicitly mentioned */}
-        <button
-          onClick={onOpenSettings}
-          className="w-full flex items-center space-x-3.5 px-4 py-3 rounded-xl text-sm font-medium tracking-wide transition-all duration-200 text-slate-400 hover:text-slate-100 hover:bg-white/5 border border-transparent hover:border-white/5 group cursor-pointer outline-none text-left"
+        {/* Settings — navigates to /settings page */}
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            `w-full flex items-center space-x-3.5 px-4 py-3 rounded-xl text-sm font-medium tracking-wide transition-all duration-200 border group cursor-pointer outline-none text-left ${
+              isActive
+                ? 'text-white bg-white/8 border-white/10 shadow-sm'
+                : 'text-slate-400 hover:text-slate-100 hover:bg-white/5 border-transparent hover:border-white/5'
+            }`
+          }
         >
           <div className="flex-shrink-0 transition-transform duration-200 group-hover:rotate-45">
             <Settings className="h-5 w-5" />
@@ -112,7 +118,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, onOpenSettings })
               Settings
             </motion.span>
           )}
-        </button>
+        </NavLink>
       </nav>
 
       {/* User Session Footer */}
