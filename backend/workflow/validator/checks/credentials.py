@@ -90,13 +90,15 @@ def check_credentials(
             # Report the error on EACH node that needs this service
             for node_id in node_ids:
                 node = next(n for n in dsl.nodes if n.id == node_id)
-                result.add_error(
+                # Downgraded to WARNING: missing credentials block *execution*
+                # but should not prevent *saving* a workflow draft.
+                result.add_warning(
                     code=ErrorCode.MISSING_CREDENTIAL,
                     node_id=node_id,
                     message=(
                         f"Node '{node.label}' requires {human_name} but you haven't "
                         f"connected {human_name} yet. "
-                        f"Go to Settings → Integrations to connect it."
+                        f"Go to Settings → Integrations to connect it before running."
                     ),
                     detail={
                         "service": service_name,
