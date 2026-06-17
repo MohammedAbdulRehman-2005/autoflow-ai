@@ -180,6 +180,16 @@ MANDATORY RULES — VIOLATIONS WILL CAUSE REJECTION
 8. Use {{{{env.VAR}}}} for all sensitive values (API keys, sheet IDs, email addresses).
 9. The trigger node's service must be "scheduler" for schedule triggers.
 10. Do not invent services or operations not listed in the spec above.
+11. ALWAYS fill ALL required params — NEVER leave them empty or missing:
+    - llm_generate: MUST have both "system_prompt" and "user_prompt" as non-empty strings.
+      Example: {{"model": "llama-3.3-70b-versatile", "system_prompt": "You are a helpful assistant.",
+                 "user_prompt": "Summarize the following emails: {{{{read_emails.output.emails}}}}",
+                 "max_tokens": 500, "temperature": 0.7}}
+    - send_email: MUST have "to", "subject", and "body" as non-empty strings.
+    - send_sms: MUST have "to" and "message" as non-empty strings.
+    - http_request: MUST have "url" and "method" as non-empty strings.
+12. Every action node that can fail MUST have on_failure set to an error handler node ID (never null for critical actions).
+    For terminal/final nodes where failure ends the workflow gracefully, on_failure may be null.
 
 ══════════════════════════════════════════════════════════════
 EXAMPLE 1: APPOINTMENT REMINDER WORKFLOW

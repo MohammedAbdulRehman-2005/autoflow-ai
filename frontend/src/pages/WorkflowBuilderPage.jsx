@@ -35,23 +35,30 @@ import { workflowApi } from '../services/workflowApi';
 // ── React Flow custom node type map ──────────────────────────────────────────
 const nodeTypes = { workflowNode: WorkflowNode };
 
-// ── Validation Error Panel ────────────────────────────────────────────────────
+// -- Validation Panel --------------------------------------------------------
 function ValidationPanel({ errors, warnings, onClose }) {
   if (!errors?.length && !warnings?.length) return null;
+  const hasErrors = errors?.length > 0;
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 space-y-2"
+      className={`rounded-2xl border p-4 space-y-2 ${
+        hasErrors
+          ? 'border-rose-500/20 bg-rose-500/5'
+          : 'border-amber-500/20 bg-amber-500/5'
+      }`}
     >
       <div className="flex justify-between items-center">
-        <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
+        <span className={`text-xs font-bold flex items-center gap-1.5 ${hasErrors ? 'text-rose-400' : 'text-amber-400'}`}>
           <AlertCircle className="h-3.5 w-3.5" />
-          Validation Failed — {errors.length} error(s), {warnings?.length || 0} warning(s)
+          {hasErrors
+            ? `Validation Failed — ${errors.length} error(s), ${warnings?.length || 0} warning(s)`
+            : `Saved with ${warnings.length} warning(s) — connect integrations before running`}
         </span>
         <button onClick={onClose} className="text-xs text-slate-500 hover:text-white cursor-pointer">✕</button>
       </div>
-      {errors.map((e, i) => (
+      {errors?.map((e, i) => (
         <div key={i} className="text-[11px] text-rose-300 bg-rose-500/10 rounded-lg px-3 py-2">
           <span className="font-bold">{e.code || 'ERROR'}</span>
           {e.node_id && <span className="text-rose-400/70 ml-1">@{e.node_id}</span>}
@@ -61,6 +68,7 @@ function ValidationPanel({ errors, warnings, onClose }) {
       {warnings?.map((w, i) => (
         <div key={i} className="text-[11px] text-amber-300 bg-amber-500/10 rounded-lg px-3 py-2">
           <span className="font-bold">⚠ {w.code || 'WARN'}</span>
+          {w.node_id && <span className="text-amber-400/70 ml-1">@{w.node_id}</span>}
           <span className="text-amber-300/80 ml-1">— {w.message || w}</span>
         </div>
       ))}
@@ -276,34 +284,46 @@ export default function WorkflowBuilderPage() {
     }
   }, [chatInput, isThinking, workflowName, plannedDsl, pendingContext, generateFromPrompt]);
 
-  // ── Save ──────────────────────────────────────────────────────────────────
+  // -- Save -----------------------------------------------------------------
   const handleSave = async () => {
     if (!plannedDsl) {
-      addLog('⚠ No workflow to save. Chat with the AI first!');
+      addLog('No workflow to save. Chat with the AI first!');
       return;
     }
     setIsSaving(true);
     setValidationResult(null);
-    addLog('🔍 Validating workflow...');
+    addLog('Validating workflow...');
     try {
       const validation = await workflowApi.validate(plannedDsl);
+
       if (!validation.valid) {
+        // Hard errors - cannot save
         setValidationResult(validation);
-        addLog(`❌ Validation failed with ${validation.errors.length} error(s).`);
+        addLog(`Validation failed with ${validation.errors.length} error(s). Fix them before saving.`);
         setIsSaving(false);
         return;
       }
-      addLog('💾 Saving workflow...');
+
+      // Show warnings (e.g. missing credentials) but still allow save
+      if (validation.warnings?.length) {
+        setValidationResult(validation);
+        addLog(`${validation.warnings.length} warning(s) - saving anyway. Connect integrations before running.`);
+      } else {
+        addLog('Validation passed!');
+      }
+
+      addLog('Saving workflow...');
       const desc = plannedDsl.description || '';
       const created = await workflowApi.create({ name: workflowName, description: desc, dsl: plannedDsl });
       setSaveResult(created);
-      addLog(`✅ Saved as "${created.name}" (ID: ${created.id})`);
+      addLog(`Saved as "${created.name}" (ID: ${created.id})`);
     } catch (err) {
-      addLog(`❌ Save error: ${err.message}`);
+      addLog(`Save error: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
   };
+
 
   // ── Run ───────────────────────────────────────────────────────────────────
   const handleRun = async () => {
