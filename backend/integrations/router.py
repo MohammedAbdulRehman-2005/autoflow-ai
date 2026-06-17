@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.auth.utils import get_current_user
+from backend.auth.dependencies import get_current_user
 from backend.database.models import User
 from backend.database.session import get_db
 from backend.integrations.service import (
