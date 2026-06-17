@@ -13,6 +13,7 @@ import {
   CheckCircle2, XCircle, Plug, Unplug, ExternalLink, Key,
   AlertCircle, Loader2, X, Eye, EyeOff, RefreshCw,
 } from 'lucide-react';
+import { tokenStore } from '../services/apiClient';
 import { workflowApi } from '../services/workflowApi';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -105,7 +106,7 @@ function StripeModal({ onClose, onSuccess }) {
     setLoading(true);
     setError('');
     try {
-      const token = localStorage.getItem('access_token');
+      const token = tokenStore.get();
       const res = await fetch(`${API_BASE}/api/v1/integrations/stripe/connect`, {
         method: 'POST',
         headers: {
@@ -315,7 +316,7 @@ export default function SettingsPage() {
   const loadIntegrations = async () => {
     setIsRefreshing(true);
     try {
-      const token = localStorage.getItem('access_token');
+      const token = tokenStore.get();
       const res = await fetch(`${API_BASE}/api/v1/integrations/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -347,7 +348,7 @@ export default function SettingsPage() {
 
     // OAuth — redirect to backend
     setLoadingId(integration.id);
-    const token = localStorage.getItem('access_token');
+    const token = tokenStore.get();
     if (!token) {
       showToast('You must be logged in to connect integrations.', 'error');
       setLoadingId(null);
@@ -362,7 +363,7 @@ export default function SettingsPage() {
   const handleDisconnect = async (service) => {
     setLoadingId(service);
     try {
-      const token = localStorage.getItem('access_token');
+      const token = tokenStore.get();
       const res = await fetch(`${API_BASE}/api/v1/integrations/${service}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
