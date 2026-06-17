@@ -26,8 +26,10 @@ export const authApi = {
 
     if (!tokenStore.get()) {
       try {
+        const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const baseUrl = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/auth/refresh`,
+          `${baseUrl}/api/v1/auth/refresh`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
