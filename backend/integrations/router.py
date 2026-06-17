@@ -52,7 +52,8 @@ def get_integrations(
 @router.get("/{provider}/connect")
 def connect_integration(
     provider: str,
-    current_user: User = Depends(get_current_user),
+    token: str = Query(...),
+    db: Session = Depends(get_db),
 ):
     """
     Redirect the user to the OAuth provider's consent screen.
@@ -66,6 +67,24 @@ def connect_integration(
     if provider not in PROVIDER_CONFIG:
         raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
 
+    # Decode token from query string because browser redirects don't have Authorization headers
+    try:
+        from backend.auth.utils import decode_token
+        from jose import JWTError
+        import uuid
+        
+        payload = decode_token(token)
+        if payload.get("type") != "access":
+            raise ValueError("Not an access token")
+            
+        user_id_str = payload.get("sub")
+        if not user_id_str:
+            raise ValueError("No user ID in token")
+            
+        user_id = uuid.UUID(user_id_str)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
     client_id = os.getenv(PROVIDER_CONFIG[provider]["client_id_env"])
     if not client_id:
         raise HTTPException(
@@ -74,8 +93,9 @@ def connect_integration(
                    f"Add {PROVIDER_CONFIG[provider]['client_id_env']} to Railway environment variables.",
         )
 
-    url = build_oauth_url(provider, current_user.id)
+    url = build_oauth_url(provider, user_id)
     return RedirectResponse(url=url)
+
 
 
 # ---------------------------------------------------------------------------
