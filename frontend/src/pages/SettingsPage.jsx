@@ -13,7 +13,7 @@ import {
   CheckCircle2, XCircle, Plug, Unplug, ExternalLink, Key,
   AlertCircle, Loader2, X, Eye, EyeOff, RefreshCw,
 } from 'lucide-react';
-import { tokenStore } from '../services/apiClient';
+import { tokenStore, api } from '../services/apiClient';
 import { workflowApi } from '../services/workflowApi';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -106,16 +106,7 @@ function StripeModal({ onClose, onSuccess }) {
     setLoading(true);
     setError('');
     try {
-      const token = tokenStore.get();
-      const res = await fetch(`${API_BASE}/api/v1/integrations/stripe/connect`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ secret_key: secretKey, webhook_secret: webhookSecret }),
-      });
-      if (!res.ok) throw new Error((await res.json()).detail || 'Failed');
+      await api.post('/api/v1/integrations/stripe/connect', { secret_key: secretKey, webhook_secret: webhookSecret });
       onSuccess();
     } catch (err) {
       setError(err.message);
@@ -316,21 +307,15 @@ export default function SettingsPage() {
   const loadIntegrations = async () => {
     setIsRefreshing(true);
     try {
-      const token = tokenStore.get();
-      const res = await fetch(`${API_BASE}/api/v1/integrations/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const services = new Set(data.map(i => i.service));
-        // Google OAuth covers all Google services
-        if (services.has('gmail')) {
-          services.add('google_sheets');
-          services.add('google_calendar');
-          services.add('google');
-        }
-        setConnectedServices(services);
+      const data = await api.get('/api/v1/integrations/');
+      const services = new Set(data.map(i => i.service));
+      // Google OAuth covers all Google services
+      if (services.has('gmail')) {
+        services.add('google_sheets');
+        services.add('google_calendar');
+        services.add('google');
       }
+      setConnectedServices(services);
     } catch (e) {
       console.error(e);
     } finally {
@@ -363,15 +348,9 @@ export default function SettingsPage() {
   const handleDisconnect = async (service) => {
     setLoadingId(service);
     try {
-      const token = tokenStore.get();
-      const res = await fetch(`${API_BASE}/api/v1/integrations/${service}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        showToast(`Disconnected ${service} successfully.`, 'success');
-        await loadIntegrations();
-      }
+      await api.delete(`/api/v1/integrations/${service}`);
+      showToast(`Disconnected ${service} successfully.`, 'success');
+      await loadIntegrations();
     } catch (e) {
       showToast(`Failed to disconnect: ${e.message}`, 'error');
     } finally {
