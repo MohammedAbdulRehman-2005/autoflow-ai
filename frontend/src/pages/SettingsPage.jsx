@@ -348,7 +348,15 @@ export default function SettingsPage() {
     // OAuth — redirect to backend
     setLoadingId(integration.id);
     const token = localStorage.getItem('access_token');
-    window.location.href = `${API_BASE}/api/v1/integrations/${integration.id}/connect?token=${token}`;
+    if (!token) {
+      showToast('You must be logged in to connect integrations.', 'error');
+      setLoadingId(null);
+      return;
+    }
+    
+    // Clean trailing slash from API_BASE to prevent //api/v1 404s
+    const baseUrl = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
+    window.location.href = `${baseUrl}/api/v1/integrations/${integration.id}/connect?token=${token}`;
   };
 
   const handleDisconnect = async (service) => {
