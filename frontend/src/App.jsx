@@ -10,6 +10,7 @@ import DashboardPage from './pages/DashboardPage';
 import WorkflowBuilderPage from './pages/WorkflowBuilderPage';
 import MarketplacePage from './pages/MarketplacePage';
 import LogsPage from './pages/LogsPage';
+import SettingsPage from './pages/SettingsPage';
 
 // Components
 import Sidebar from './components/Sidebar';
@@ -315,6 +316,7 @@ export default function App() {
             <Route path="workflow-builder" element={<WorkflowBuilderPage />} />
             <Route path="marketplace" element={<MarketplacePage />} />
             <Route path="logs" element={<LogsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
 
           {/* Unmatched wildcard route recovery */}

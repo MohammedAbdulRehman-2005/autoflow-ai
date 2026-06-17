@@ -25,6 +25,7 @@ from backend.core.redis import close_redis
 from backend.intent_parser.router import router as intent_router
 from backend.followup_engine.router import router as followup_router
 from backend.gmail.router import router as gmail_router
+from backend.integrations.router import router as integrations_router
 from backend.database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,7 @@ app.include_router(validator_router, prefix="/api/v1")
 app.include_router(engine_router, prefix="/api/v1")
 app.include_router(scheduler_router, prefix="/api/v1")
 app.include_router(gmail_router, prefix="/api/v1")
+app.include_router(integrations_router, prefix="/api/v1")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
