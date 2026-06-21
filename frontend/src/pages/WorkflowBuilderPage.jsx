@@ -9,7 +9,7 @@
  *    survive DSL updates so the canvas never unexpectedly jumps.
  */
 
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo,useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -25,7 +25,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitBranch, Play, Save, Download, AlertCircle, Brain, Zap,
   Terminal, RotateCw, Sparkles, RefreshCw, CheckCircle2, Send,
-  User, Bot, ChevronRight, Trash2, X
+  User, Bot, ChevronRight, Trash2, X,Mic,Square
 } from 'lucide-react';
 
 import WorkflowNode from '../components/WorkflowNode';
@@ -117,6 +117,65 @@ export default function WorkflowBuilderPage() {
   // ── React Flow state ─────────────────────────────────────────────────────
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
+
+  const [recording,setRecording]=useState(false);
+  const mediaRecorderRef =useRef(null);
+  const chunksRef= useRef([]);
+  
+  const startRecording = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+    });
+
+    const recorder = new MediaRecorder(stream);
+
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunksRef.current.push(event.data);
+      }
+    };
+
+    recorder.onstop = async () => {
+      const audioBlob = new Blob(chunksRef.current, {
+        type: "audio/webm",
+      });
+
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
+
+        const response = await fetch(
+          "http://localhost:8000/api/v1/transcribe",
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        const data = await response.json();
+
+        if (data.success) {
+          setChatInput((prev) => prev + " " + data.text);
+        }
+      };
+
+    mediaRecorderRef.current = recorder;  
+    recorder.start();
+    
+    setRecording(true);
+  } catch (error) {
+    console.error("Microphone error:", error);
+  }
+};
+
+const stopRecording = () => {
+  mediaRecorderRef.current?.stop();
+  setRecording(false);
+};
+
+
 
   // Saved manual positions: { nodeId: { x, y } }
   const savedPositionsRef = useRef({});
@@ -591,6 +650,14 @@ export default function WorkflowBuilderPage() {
                     : 'border-white/10 hover:border-white/20 focus:border-purple-500/50'
                 }`}
             />
+            <button
+  onClick={recording ? stopRecording : startRecording}
+  className="flex-shrink-0 w-9 h-9 rounded-xl border border-white/10 hover:border-white/20 flex items-center justify-center"
+>
+  {recording ? "⏸️": (
+    <Mic size={15} />
+  )}
+</button>
             <button
               onClick={sendMessage}
               disabled={!chatInput.trim() || isThinking}

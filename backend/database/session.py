@@ -12,8 +12,11 @@ Usage:
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from backend.core.config import get_settings
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/autoflow")
+settings=get_settings()
+
+DATABASE_URL = settings.DATABASE_URL
 
 engine = create_engine(
     DATABASE_URL,

@@ -1,7 +1,7 @@
 """
 AutoFlow AI X — FastAPI Application Entry Point
 """
-
+import os
 import logging
 from contextlib import asynccontextmanager
 
@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import sentry_sdk
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-
+from backend.routes.transcribe import router as transcribe_router
+from dotenv import load_dotenv
 from backend.core.rate_limit import limiter
 
 from backend.auth.router import router as auth_router
@@ -37,6 +38,9 @@ if settings.SENTRY_DSN:
         traces_sample_rate=1.0,
         profiles_sample_rate=1.0,
     )
+
+# Load environment configs from the project root .env
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 
 @asynccontextmanager
@@ -99,6 +103,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+     openapi_url="/api/openapi.json"
 )
 
 app.state.limiter = limiter
@@ -130,6 +135,7 @@ app.include_router(engine_router, prefix="/api/v1")
 app.include_router(scheduler_router, prefix="/api/v1")
 app.include_router(gmail_router, prefix="/api/v1")
 app.include_router(integrations_router, prefix="/api/v1")
+app.include_router(transcribe_router, prefix="/api/v1")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +149,8 @@ def health_check():
         "app": settings.APP_NAME,
         "version": "0.1.0",
         "scheduler_running": scheduler_service.is_running,
+        "has_openai_key": bool(os.getenv("OPENAI_API_KEY")),
+        "has_groq_key": bool(os.getenv("GROQ_API_KEY"))
     }
 
 
@@ -152,3 +160,16 @@ def scheduler_status():
     return {
         "scheduler_running": scheduler_service.is_running,
     }
+
+
+# Set up logging format
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=3000, reload=True)

@@ -30,10 +30,10 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:5173,https://autoflow-ai-ebon.vercel.app"
 
     # ── Database ─────────────────────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/autoflow"
+    DATABASE_URL: str 
 
     # ── Redis ─────────────────────────────────────────────────────────────────
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str 
 
     # ── External APIs / AI ────────────────────────────────────────────────────
     GROQ_API_KEY: str = ""
@@ -48,6 +48,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
+        extra="ignore"
     )
 
 
