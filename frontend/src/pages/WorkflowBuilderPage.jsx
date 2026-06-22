@@ -147,7 +147,7 @@ export default function WorkflowBuilderPage() {
       formData.append("audio", audioBlob, "recording.webm");
 
         const response = await fetch(
-          "http://localhost:8000/api/v1/transcribe",
+          "https://autoflow-ai-production.up.railway.app/api/v1/transcribe",
           {
             method: "POST",
             body: formData,
