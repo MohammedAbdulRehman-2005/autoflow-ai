@@ -210,12 +210,53 @@ const stopRecording = () => {
   // ── Apply a new DSL to the canvas ────────────────────────────────────────
   const applyDsl = useCallback((dsl) => {
     setPlannedDsl(dsl);
+    localStorage.setItem("draft_workflow",JSON.stringify(dsl));
     const { nodes, edges } = dslToFlow(dsl, savedPositionsRef.current);
     setRfNodes(nodes);
     setRfEdges(edges);
     if (dsl.name) setWorkflowName(dsl.name);
   }, [setRfNodes, setRfEdges]);
 
+useEffect(() => {
+  const workflowId =
+    localStorage.getItem("current_workflow_id");
+
+  if (!workflowId) return;
+
+  workflowApi.get(workflowId)
+    .then((wf) => {
+      
+      const dsl =
+      wf?.dsl || 
+      wf?.dsl_json ||
+      wf?.ai_context_json ||
+      wf?.plan || 
+      wf?.workflow_dsl || 
+      wf?.definition ;
+      
+      if (dsl) {
+        applyDsl(dsl);
+      }
+    })
+    .catch(console.error);
+}, [applyDsl]);
+
+useEffect(() => {
+const workflowId =localStorage.getItem("current_workflow_id");
+
+if(workflowId) return ;
+  const draft = localStorage.getItem("draft_workflow");
+
+  if (draft) {
+    try {
+      const dsl = JSON.parse(draft);
+      applyDsl(dsl);
+    } catch (err) {
+      console.error("Failed to load draft", err);
+    }
+  }
+}, [applyDsl]);
+  
   // ── Handle node drag stop → save position ────────────────────────────────
   const onNodeDragStop = useCallback((_, node) => {
     savedPositionsRef.current[node.id] = node.position;
@@ -269,6 +310,7 @@ const stopRecording = () => {
     );
 
     const dsl = result.dsl || result;
+    localStorage.removeItem("current_workflow_id")
     applyDsl(dsl);
 
     const nodeCount = dsl.nodes?.length || 0;
@@ -374,7 +416,10 @@ const stopRecording = () => {
       addLog('Saving workflow...');
       const desc = plannedDsl.description || '';
       const created = await workflowApi.create({ name: workflowName, description: desc, dsl: plannedDsl });
+      localStorage.setItem("current_workflow_id",created.id);
+      localStorage.removeItem("draft_workflow");
       setSaveResult(created);
+      window.dispatchEvent(new Event("workflow-saved"));
       addLog(`Saved as "${created.name}" (ID: ${created.id})`);
     } catch (err) {
       addLog(`Save error: ${err.message}`);
