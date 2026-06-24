@@ -7,10 +7,53 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
 from backend.auth.dependencies import get_current_user
-from backend.database.models import User, Workflow, WorkflowStatus
+from backend.database.models import User, Workflow, WorkflowStatus, WorkflowNode, NodeType
 from backend.database.session import get_db
 
 router = APIRouter(prefix="/workflows", tags=["Workflows"])
+
+def _sync_workflow_nodes(db: Session, workflow: Workflow, dsl_json: dict):
+    if not dsl_json or "nodes" not in dsl_json:
+        return
+        
+    existing_nodes = db.query(WorkflowNode).filter(WorkflowNode.workflow_id == workflow.id).all()
+    existing_by_dsl_id = {n.config_json.get("dsl_id"): n for n in existing_nodes if n.config_json.get("dsl_id")}
+
+    nodes = dsl_json.get("nodes", [])
+    for node_dsl in nodes:
+        node_id_str = node_dsl.get("id")
+        if not node_id_str:
+            continue
+            
+        node_type_str = node_dsl.get("type", "action")
+        try:
+            node_type = NodeType(node_type_str)
+        except ValueError:
+            node_type = NodeType.action
+            
+        config_json = {"dsl_id": node_id_str, **node_dsl}
+        label = node_dsl.get("label", node_id_str)
+        is_disabled = node_dsl.get("is_disabled", False)
+        
+        if node_id_str in existing_by_dsl_id:
+            db_node = existing_by_dsl_id[node_id_str]
+            db_node.node_type = node_type
+            db_node.label = label
+            db_node.config_json = config_json
+            db_node.is_disabled = is_disabled
+        else:
+            db_node = WorkflowNode(
+                workflow_id=workflow.id,
+                node_type=node_type,
+                label=label,
+                config_json=config_json,
+                position_x=0.0,
+                position_y=0.0,
+                is_disabled=is_disabled
+            )
+            db.add(db_node)
+            
+    db.commit()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Schemas
@@ -108,6 +151,9 @@ def create_workflow(
     db.add(workflow)
     db.commit()
     db.refresh(workflow)
+    
+    _sync_workflow_nodes(db, workflow, payload.dsl_json)
+    
     return workflow
 
 @router.patch("/{workflow_id}", response_model=WorkflowResponse)
@@ -138,6 +184,10 @@ def update_workflow(
         
     db.commit()
     db.refresh(workflow)
+    
+    if payload.dsl_json is not None:
+        _sync_workflow_nodes(db, workflow, payload.dsl_json)
+        
     return workflow
 
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
