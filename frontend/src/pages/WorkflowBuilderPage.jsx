@@ -23,7 +23,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  GitBranch, Play, Save, Download, AlertCircle, Brain, Zap,
+  GitBranch, Play, Save, Download, Upload, AlertCircle, Brain, Zap,
   Terminal, RotateCw, Sparkles, RefreshCw, CheckCircle2, Send,
   User, Bot, ChevronRight, Trash2, X,Mic,Square
 } from 'lucide-react';
@@ -449,7 +449,7 @@ if(workflowId) return ;
     }
   };
 
-  // ── Export ────────────────────────────────────────────────────────────────
+  // ── Export / Import ───────────────────────────────────────────────────────
   const handleExport = () => {
     if (!plannedDsl) return;
     const blob = new Blob([JSON.stringify(plannedDsl, null, 2)], { type: 'application/json' });
@@ -458,6 +458,26 @@ if(workflowId) return ;
     a.download = `${workflowName.toLowerCase().replace(/ /g, '_')}.json`;
     a.click();
     addLog('📥 DSL exported.');
+  };
+
+  const fileInputRef = useRef(null);
+
+  const handleImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target.result);
+        if (json.name) setWorkflowName(json.name);
+        setPlannedDsl(json);
+        addLog(`📤 Imported DSL: ${json.name || 'Untitled'}`);
+      } catch (error) {
+        addLog(`❌ Failed to parse JSON: ${error.message}`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
   };
 
   // ── Quick Templates ───────────────────────────────────────────────────────
@@ -497,6 +517,14 @@ if(workflowId) return ;
           className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10 hover:text-white transition-all cursor-pointer disabled:opacity-30"
         >
           <Download size={16} />
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          title="Import DSL JSON"
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
+        >
+          <Upload size={16} />
+          <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImport} />
         </button>
         <div className="h-px w-6 bg-white/10 my-1" />
         <button
