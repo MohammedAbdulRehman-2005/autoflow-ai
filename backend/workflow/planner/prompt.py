@@ -27,7 +27,7 @@ _PARAM_HINTS: dict[str, dict[str, str]] = {
     "condition_branch": {"condition": "boolean expression, e.g. '{{node_id.output.count > 0}}'"},
     "for_each":         {"items": "reference to an array from a previous node, e.g. '{{read_rows.output.rows}}'"},
     "http_request":     {"url": "full URL including protocol", "method": "GET | POST | PUT | DELETE | PATCH"},
-    "post_message":     {"channel": "Slack channel name e.g. '#general' or channel ID"},
+    "post_message":     {"channel": "Slack channel name e.g. '#all-autoflow-ai' or channel ID like 'C08XXXXXXX'"},
 }
 
 

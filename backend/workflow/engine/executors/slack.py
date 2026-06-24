@@ -84,7 +84,7 @@ class SlackPostMessageExecutor(BaseExecutor):
     Posts a message to a Slack channel.
 
     Required params:
-        channel : Slack channel name ('#general') or channel ID ('C01234567')
+        channel : Slack channel name ('#all-autoflow-ai') or channel ID ('C08XXXXXXX')
         text    : Message text (supports Slack mrkdwn formatting)
 
     Optional params:
