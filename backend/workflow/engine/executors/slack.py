@@ -15,6 +15,7 @@ Slack Web API reference:
 """
 
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -39,6 +40,10 @@ def _get_slack_token(context: ExecutionContext) -> str | None:
     Returns None if no Slack integration is found or the token is missing.
     """
     try:
+        env_token = os.getenv("SLACK_BOT_TOKEN")
+        if env_token:
+            return env_token
+
         from backend.integrations.service import decrypt_credentials
         from backend.database.models import Integration, IntegrationService
 
@@ -99,7 +104,7 @@ class SlackPostMessageExecutor(BaseExecutor):
         context: ExecutionContext,
         resolved_params: dict[str, Any],
     ) -> ExecutorResult:
-        channel = resolved_params.get("channel", "")
+        channel = os.getenv("SLACK_CHANNEL") or resolved_params.get("channel", "")
         text = resolved_params.get("text", "")
         blocks = resolved_params.get("blocks")
         username = resolved_params.get("username")
