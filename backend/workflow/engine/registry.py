@@ -44,6 +44,14 @@ from backend.workflow.engine.executors.ai_agent import (
     LLMExtractExecutor,
     LLMGenerateExecutor,
 )
+from backend.workflow.engine.executors.slack import SlackPostMessageExecutor
+from backend.workflow.engine.executors.notion import NotionAppendRowExecutor
+from backend.workflow.engine.executors.hubspot import (
+    HubSpotAppendRowExecutor,
+    HubSpotFindRowExecutor,
+    HubSpotUpdateRowExecutor,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +93,17 @@ EXECUTOR_REGISTRY: dict[str, BaseExecutor] = {
     "openai.llm_generate":         LLMGenerateExecutor(),    # Same interface for now
     "openai.llm_classify":         LLMClassifyExecutor(),
     "openai.llm_extract":          LLMExtractExecutor(),
+
+    # ── Slack ────────────────────────────────────────────────────────────────
+    "slack.post_message":          SlackPostMessageExecutor(),
+
+    # ── Notion ───────────────────────────────────────────────────────────────
+    "notion.append_row":           NotionAppendRowExecutor(),
+
+    # ── HubSpot CRM ─────────────────────────────────────────────────────────
+    "hubspot.append_row":          HubSpotAppendRowExecutor(),
+    "hubspot.update_row":          HubSpotUpdateRowExecutor(),
+    "hubspot.find_row":            HubSpotFindRowExecutor(),
 }
 
 

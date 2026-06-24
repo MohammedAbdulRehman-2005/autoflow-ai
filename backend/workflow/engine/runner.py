@@ -64,10 +64,12 @@ class WorkflowRunner:
         run_id: uuid.UUID,
         db: Session,
         trigger_payload: dict[str, Any] = None,
+        user_id: uuid.UUID = None,
     ):
         self.dsl = dsl
         self.run_id = run_id
         self.db = db
+        self.user_id = user_id
 
         # Build a fast lookup map: dsl_node_id → WorkflowNodeDSL
         self._node_map: dict[str, WorkflowNodeDSL] = {n.id: n for n in dsl.nodes}
@@ -82,6 +84,8 @@ class WorkflowRunner:
             run_id=run_id,
             trigger_payload=trigger_payload or {},
             workflow_variables=dsl.variables.copy(),
+            db=db,
+            user_id=user_id,
         )
 
         # Track visited nodes to prevent infinite loops

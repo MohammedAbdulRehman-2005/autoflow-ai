@@ -22,6 +22,12 @@ from typing import Any, Optional
 
 from jinja2 import BaseLoader, Environment, Undefined
 
+try:
+    from sqlalchemy.orm import Session
+except ImportError:
+    Session = None  # type: ignore[assignment,misc]
+
+
 
 class _SilentUndefined(Undefined):
     """Return an empty string instead of raising errors for missing variables.
@@ -55,8 +61,12 @@ class ExecutionContext:
         run_id: uuid.UUID,
         trigger_payload: dict[str, Any],
         workflow_variables: dict[str, Any],
+        db: Optional["Session"] = None,
+        user_id: Optional[uuid.UUID] = None,
     ):
         self.run_id = run_id
+        self.db = db
+        self.user_id = user_id
         self._trigger_payload = trigger_payload
         self._workflow_vars = workflow_variables
         self._node_outputs: dict[str, Any] = {}  # node_dsl_id → output dict

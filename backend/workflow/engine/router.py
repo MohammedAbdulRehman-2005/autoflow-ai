@@ -63,6 +63,7 @@ async def _run_workflow_background(
     dsl: WorkflowDSL,
     trigger_payload: dict,
     db: Session,
+    user_id: uuid.UUID,
 ) -> None:
     """
     Background task: instantiate the runner and execute the workflow.
@@ -73,6 +74,7 @@ async def _run_workflow_background(
         run_id=run_id,
         db=db,
         trigger_payload=trigger_payload,
+        user_id=user_id,
     )
     try:
         await runner.run()
@@ -165,6 +167,7 @@ async def trigger_run(
         dsl=dsl,
         trigger_payload=payload.trigger_payload,
         db=db,
+        user_id=current_user.id,
     )
 
     logger.info(
