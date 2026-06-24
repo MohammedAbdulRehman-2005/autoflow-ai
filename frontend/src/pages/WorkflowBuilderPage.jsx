@@ -502,7 +502,8 @@ if(workflowId) return ;
         const json = JSON.parse(event.target.result);
         if (json.name) setWorkflowName(json.name);
         setPlannedDsl(json);
-        addLog(`📤 Imported DSL: ${json.name || 'Untitled'}`);
+        setSaveResult(null); // Clear previous save state
+        addLog(`📤 Imported DSL: "${json.name || 'Untitled'}". Click the Save button to save it!`);
       } catch (error) {
         addLog(`❌ Failed to parse JSON: ${error.message}`);
       }
