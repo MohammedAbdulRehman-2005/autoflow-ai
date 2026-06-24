@@ -18,6 +18,8 @@ from typing import Optional
 
 from backend.workflow.dsl.schema import NodeType, WorkflowDSL
 from backend.workflow.validator.models import ErrorCode, ValidationResult
+from backend.workflow.validator.checks.schema import is_terminal_node
+
 
 
 def _build_adjacency(dsl: WorkflowDSL) -> tuple[dict[str, list[str]], dict[str, int]]:
@@ -103,13 +105,19 @@ def check_graph(dsl: WorkflowDSL) -> ValidationResult:
             )
 
     # ── 3. Dead-end warnings (non-trigger leaf nodes) ─────────────────────────
-    # A node with no outgoing edges (except trigger) is a dead end — warn if
-    # it's an action node (it might be intentional for the last step, so just warn)
+    # A node with no outgoing edges that is NOT an intentional terminal step gets
+    # a dead-end warning.  We use the shared is_terminal_node() predicate here
+    # (same as schema.py) so the definition is consistent: a terminal node is
+    # one where BOTH on_success and on_failure are None.  This avoids brittle
+    # name/ID substring matching that would suppress real bugs and generate
+    # false positives for any node whose name happens to contain 'end' or 'log'.
     for node in dsl.nodes:
         if node.type == NodeType.trigger:
             continue
         if not node.is_disabled and not adj.get(node.id):
-            if node.type == NodeType.action:
+            if node.type == NodeType.action and not is_terminal_node(node):
+                # Only warn for mid-chain nodes that dead-end unexpectedly.
+                # True terminal/sink nodes (is_terminal_node == True) are deliberate.
                 result.add_warning(
                     code=ErrorCode.DEAD_END_ACTION_NODE,
                     node_id=node.id,

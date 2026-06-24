@@ -5,14 +5,31 @@ Validates that each node has all required params for its operation.
 This runs BEFORE calling any external APIs, catching config mistakes early.
 
 Required param definitions per operation:
-  - "required": params that must be present and non-empty
-  - "types"   : expected Python types for specific params (optional)
+  - "required" : params that must be present and non-empty
+  - "allowed"  : all known params for this operation (used to detect unknown params)
+  - "types"    : expected Python types for specific params (optional)
+
+Terminal node rule (shared with graph.py):
+  A node is considered an intentional terminal/sink when BOTH on_success and
+  on_failure are None.  We use the same is_terminal_node() helper in both files
+  so the definition never diverges.
 """
 
 from typing import Any
 
 from backend.workflow.dsl.schema import NodeType, OperationType, WorkflowDSL, WorkflowNodeDSL
 from backend.workflow.validator.models import ErrorCode, ValidationResult
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SHARED TERMINAL-NODE PREDICATE
+# A node is a deliberate endpoint when it has nowhere to go on either path.
+# Import this in graph.py to keep the two files using the same definition.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def is_terminal_node(node: WorkflowNodeDSL) -> bool:
+    """Return True when a node is an intentional terminal / error-sink step."""
+    return node.on_success is None and node.on_failure is None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OPERATION → REQUIRED PARAMS MAP
@@ -24,68 +41,92 @@ OPERATION_REQUIRED_PARAMS: dict[str, dict] = {
     # Gmail
     OperationType.send_email.value: {
         "required": ["to", "subject", "body"],
+        "allowed":  ["to", "subject", "body", "cc", "bcc", "reply_to"],
     },
     OperationType.get_emails.value: {
         "required": ["query"],
+        "allowed":  ["query", "max_results"],
+        # query: Gmail search syntax, e.g. 'in:inbox is:unread'
     },
     OperationType.create_draft.value: {
         "required": ["to", "subject", "body"],
+        "allowed":  ["to", "subject", "body", "cc", "bcc"],
     },
 
     # Google Sheets
     OperationType.read_rows.value: {
         "required": ["spreadsheet_id", "range"],
+        "allowed":  ["spreadsheet_id", "range", "filter"],
     },
     OperationType.append_row.value: {
         "required": ["spreadsheet_id", "range", "row"],
+        "allowed":  ["spreadsheet_id", "range", "row"],
     },
     OperationType.update_row.value: {
         "required": ["spreadsheet_id", "range"],
+        "allowed":  ["spreadsheet_id", "range", "row", "condition"],
     },
     OperationType.find_row.value: {
         "required": ["spreadsheet_id", "range"],
+        "allowed":  ["spreadsheet_id", "range", "filter"],
     },
 
     # HTTP
     OperationType.http_request.value: {
         "required": ["url", "method"],
+        "allowed":  ["url", "method", "headers", "body", "timeout_seconds"],
     },
 
     # AI
     OperationType.llm_generate.value: {
         "required": ["user_prompt"],
+        "allowed":  ["model", "system_prompt", "user_prompt", "max_tokens", "temperature"],
     },
     OperationType.llm_classify.value: {
         "required": ["text", "labels"],
+        "allowed":  ["model", "text", "labels"],
     },
     OperationType.llm_extract.value: {
         "required": ["text", "fields"],
+        "allowed":  ["model", "text", "fields"],
+    },
+
+    # Slack
+    OperationType.post_message.value: {
+        "required": ["channel", "text"],
+        "allowed":  ["channel", "text", "blocks", "username", "icon_emoji"],
     },
 
     # Built-in
     OperationType.condition_branch.value: {
         "required": ["condition"],
+        "allowed":  ["condition"],
     },
     OperationType.for_each.value: {
         "required": ["items"],
+        "allowed":  ["items", "item_var"],
     },
     OperationType.wait.value: {
         "required": ["duration_seconds"],
+        "allowed":  ["duration_seconds"],
     },
     OperationType.map_fields.value: {
         "required": ["mapping"],
+        "allowed":  ["mapping"],
     },
     OperationType.filter_list.value: {
         "required": ["items"],
+        "allowed":  ["items", "condition"],
     },
     OperationType.set_variable.value: {
         "required": ["variable", "value"],
+        "allowed":  ["variable", "value"],
     },
 
     # Triggers — params are optional (validated at trigger-config level)
-    OperationType.cron.value:          {},
-    OperationType.webhook_listen.value: {},
-    OperationType.manual_trigger.value: {},
+    OperationType.cron.value:          {"required": [], "allowed": ["cron", "timezone"]},
+    OperationType.webhook_listen.value: {"required": [], "allowed": ["path", "secret", "method"]},
+    OperationType.manual_trigger.value: {"required": [], "allowed": ["description"]},
 }
 
 # Params that must be lists (not strings or dicts) when present
@@ -185,6 +226,26 @@ def check_schema(dsl: WorkflowDSL) -> ValidationResult:
                     detail={"param": df, "got": type(val).__name__},
                 )
 
+        # ── Unknown-param detection ───────────────────────────────────────────
+        # If the spec defines an 'allowed' set, warn about params not in it.
+        # This catches LLM param pollution (e.g. sending label/unread_only
+        # alongside the correct query for get_emails) that won't error at
+        # validation time but will confuse the runtime executor.
+        allowed_fields: list[str] = spec.get("allowed", [])
+        if allowed_fields:  # Only check when spec explicitly defines allowed params
+            for param_key in node.params:
+                if param_key not in allowed_fields:
+                    result.add_warning(
+                        code=ErrorCode.INVALID_PARAM_TYPE,
+                        node_id=node.id,
+                        message=(
+                            f"Node '{node.label}' has unknown param '{param_key}' "
+                            f"for operation '{op_key}'. "
+                            f"Known params: {allowed_fields}."
+                        ),
+                        detail={"param": param_key, "allowed": allowed_fields},
+                    )
+
         # ── Condition node must have on_success + on_failure ──────────────────
         if node.type == NodeType.condition:
             edges_from_node = [e for e in dsl.edges if e.source_id == node.id]
@@ -208,8 +269,17 @@ def check_schema(dsl: WorkflowDSL) -> ValidationResult:
                     message=f"Condition node '{node.label}' has no 'false' branch — falsy results will dead-end.",
                 )
 
-        # ── Action nodes without on_failure get a warning ─────────────────────
-        if node.type == NodeType.action and not node.on_failure and not node.is_disabled:
+        # ── Mid-chain action nodes without on_failure get a warning ─────────────
+        # We only warn when the node has an on_success target (i.e. it sits in the
+        # middle of a chain) but is missing an on_failure handler.  Intentional
+        # terminal / error-sink nodes (on_success=None AND on_failure=None) are
+        # deliberate dead-ends and must not generate noise.
+        if (
+            node.type == NodeType.action
+            and not node.is_disabled
+            and node.on_success is not None   # mid-chain: has a happy path
+            and node.on_failure is None        # but no error path
+        ):
             result.add_warning(
                 code=ErrorCode.MISSING_FAILURE_HANDLER,
                 node_id=node.id,

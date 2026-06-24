@@ -42,6 +42,8 @@ from backend.workflow.planner.schemas import (
     IntentDetails,
     PlanWorkflowResponse,
 )
+from backend.workflow.validator.checks.schema import check_schema
+
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -250,7 +252,33 @@ async def plan_workflow(
       6. Return full response
     """
     groq_client = Groq(api_key=settings.GROQ_API_KEY)
-    system_prompt = build_system_prompt(existing_dsl=existing_dsl)
+
+    # Extract operations from the intent so we can filter the schema block to
+    # only the ops this workflow will actually use — shorter prompt, same effect.
+    relevant_operations: list[str] | None = None
+    if intent.integrations:
+        # Map integration names to their common operations for prompt filtering
+        _service_ops = {
+            "gmail":          ["send_email", "get_emails", "create_draft"],
+            "google_sheets":  ["read_rows", "append_row", "update_row", "find_row"],
+            "google_calendar": ["create_event", "list_events"],
+            "slack":          ["post_message"],
+            "notion":         ["append_row"],
+            "hubspot":        ["append_row", "update_row", "find_row"],
+            "http":           ["http_request"],
+            "groq":           ["llm_generate", "llm_classify", "llm_extract"],
+            "openai":         ["llm_generate", "llm_classify", "llm_extract"],
+        }
+        relevant_operations = []
+        for svc in intent.integrations:
+            relevant_operations.extend(_service_ops.get(svc.lower(), []))
+        # Always include builtin ops (conditions, waits, etc.)
+        relevant_operations.extend(
+            ["condition_branch", "for_each", "wait", "map_fields", "filter_list", "set_variable"]
+        )
+        relevant_operations = list(dict.fromkeys(relevant_operations))  # deduplicate, preserve order
+
+    system_prompt = build_system_prompt(existing_dsl=existing_dsl, operations=relevant_operations)
 
     # Build the user message from the structured intent
     user_message = _build_user_message(workflow_name, intent, existing_dsl=existing_dsl)
@@ -313,10 +341,29 @@ async def plan_workflow(
 
         # ── Graph Validation ─────────────────────────────────────────────────
         graph_result: ValidationResult = validate_workflow_graph(dsl)
-        if not graph_result.is_valid:
-            last_errors = graph_result.errors
-            logger.warning(f"Attempt {attempt}: Graph validation failed — {last_errors}")
+
+        # ── Schema Param Validation ─────────────────────────────────────────
+        schema_result = check_schema(dsl)
+
+        # Consolidate ALL hard errors from both checks into one list[str].
+        # graph_result.errors  → List[str]      (old dsl/validator.py)
+        # schema_result.errors → List[ValidationIssue]  (new validator/models.py)
+        # Both are serialised to strings so build_retry_prompt receives a uniform list.
+        combined_error_strings: list[str] = list(graph_result.errors) + [
+            f"{e.code} on node '{e.node_id}': {e.message}" if e.node_id else f"{e.code}: {e.message}"
+            for e in schema_result.errors
+        ]
+
+        if combined_error_strings:
+            last_errors = combined_error_strings
+            logger.warning(
+                f"Attempt {attempt}: Validation failed — "
+                f"{len(graph_result.errors)} graph error(s), "
+                f"{len(schema_result.errors)} schema error(s)"
+            )
             continue
+
+
 
         # ── SUCCESS — Save to DB ─────────────────────────────────────────────
         logger.info(f"DSL validated successfully on attempt {attempt} for '{workflow_name}'")

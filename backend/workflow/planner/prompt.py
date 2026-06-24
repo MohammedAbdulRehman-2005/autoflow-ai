@@ -10,11 +10,80 @@ The prompt is the most critical part of the planner. It must:
 
 import json
 from backend.workflow.dsl.examples import get_example_dsl_json
+# Single source of truth — same dict the validator uses
+from backend.workflow.validator.checks.schema import OPERATION_REQUIRED_PARAMS
 
 
-def build_system_prompt(existing_dsl: dict | None = None) -> str:
+# ─────────────────────────────────────────────────────────────────────────────
+# PARAM HINTS  (inline documentation injected alongside required fields)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PARAM_HINTS: dict[str, dict[str, str]] = {
+    "get_emails":       {"query": "Gmail search syntax, e.g. 'in:inbox is:unread' or 'from:boss@company.com'"},
+    "send_email":       {"to": "email address or {{template}}", "body": "plain text or HTML"},
+    "read_rows":        {"spreadsheet_id": "Google Sheets ID from the URL", "range": "e.g. 'Sheet1!A:E'"},
+    "append_row":       {"spreadsheet_id": "Google Sheets ID from the URL", "range": "e.g. 'Sheet1!A:D'"},
+    "llm_generate":     {"user_prompt": "use {{node_id.output.field}} to inject upstream data"},
+    "condition_branch": {"condition": "boolean expression, e.g. '{{node_id.output.count > 0}}'"},
+    "for_each":         {"items": "reference to an array from a previous node, e.g. '{{read_rows.output.rows}}'"},
+    "http_request":     {"url": "full URL including protocol", "method": "GET | POST | PUT | DELETE | PATCH"},
+    "post_message":     {"channel": "Slack channel name e.g. '#general' or channel ID"},
+}
+
+
+def build_operation_schema_block(operations: list[str] | None = None) -> str:
+    """
+    Render a concise REQUIRED PARAMS block from OPERATION_REQUIRED_PARAMS.
+
+    Args:
+        operations: If supplied, only include entries for these operation names.
+                    Pass None to include all (used when no intent context is available).
+
+    Returns a formatted string ready to be injected into the system prompt.
+    The function reads directly from the validator's OPERATION_REQUIRED_PARAMS
+    so the prompt is always in sync — no parallel copy to maintain.
+    """
+    lines = [
+        "──────────────────────────────────────────────────────────────",
+        "REQUIRED PARAMS PER OPERATION  (you MUST include ALL of these)",
+        "──────────────────────────────────────────────────────────────",
+    ]
+
+    items = (
+        {k: v for k, v in OPERATION_REQUIRED_PARAMS.items() if k in operations}
+        if operations
+        else OPERATION_REQUIRED_PARAMS
+    )
+
+    for op_key, spec in items.items():
+        required = spec.get("required", [])
+        allowed  = spec.get("allowed", [])
+        hints    = _PARAM_HINTS.get(op_key, {})
+
+        if not required and not allowed:
+            continue  # Triggers with no mandatory params — skip
+
+        lines.append(f"\n{op_key}:")
+        if required:
+            lines.append(f"  REQUIRED: {required}")
+        if allowed:
+            optional = [p for p in allowed if p not in required]
+            if optional:
+                lines.append(f"  OPTIONAL: {optional}")
+        for param, hint in hints.items():
+            if param in required or param in allowed:
+                lines.append(f"  • {param}: {hint}")
+
+    lines.append("──────────────────────────────────────────────────────────────")
+    return "\n".join(lines)
+
+
+
+
+def build_system_prompt(existing_dsl: dict | None = None, operations: list[str] | None = None) -> str:
     appt_example = json.dumps(get_example_dsl_json("appointment"), indent=2)
     report_example = json.dumps(get_example_dsl_json("weekly_report"), indent=2)
+    schema_block = build_operation_schema_block(operations)
 
     base_prompt = f"""You are the Workflow Planner for AutoFlow AI X — an AI-native workflow automation platform.
 Your ONLY job is to convert a user's business automation intent into a valid AutoFlow DSL JSON object.
@@ -103,36 +172,7 @@ Service: "notion"     → Operations: "append_row"
 Service: "hubspot"    → Operations: "append_row", "update_row", "find_row"
 Service: "builtin"    → Operations: "condition_branch", "for_each", "wait", "map_fields", "filter_list", "set_variable"
 
-──────────────────────────────────────────────────────────────
-OPERATION PARAMS REFERENCE
-──────────────────────────────────────────────────────────────
-
-send_email params:
-  {{ "to": "email@example.com", "subject": "Subject", "body": "Body text", "cc": null }}
-
-read_rows params:
-  {{ "spreadsheet_id": "{{{{env.SHEET_ID}}}}", "range": "Sheet1!A:E", "filter": {{"column": "date", "equals": "{{{{context.today}}}}"}} }}
-
-append_row params:
-  {{ "spreadsheet_id": "{{{{env.SHEET_ID}}}}", "range": "Sheet1!A:D", "row": {{"col1": "val1"}} }}
-
-condition_branch params:
-  {{ "condition": "{{{{node_id.output.field > 0}}}}" }}
-
-for_each params:
-  {{ "items": "{{{{node_id.output.rows}}}}", "item_var": "item" }}
-
-wait params:
-  {{ "duration_seconds": 3600 }}
-
-llm_generate params:
-  {{ "model": "llama-3.3-70b-versatile", "system_prompt": "...", "user_prompt": "...", "max_tokens": 500, "temperature": 0.7 }}
-
-http_request params:
-  {{ "url": "https://api.example.com/endpoint", "method": "POST", "headers": {{}}, "body": {{}} }}
-
-send_sms params:
-  {{ "to": "{{{{item.phone}}}}", "message": "Your reminder text here." }}
+{schema_block}
 
 ──────────────────────────────────────────────────────────────
 TEMPLATE VARIABLE SYNTAX
