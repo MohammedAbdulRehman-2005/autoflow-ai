@@ -1,12 +1,12 @@
 
 from pydantic import BaseModel
-
+from typing import List,Optional
 
 class IntentRequest(BaseModel):
     prompt: str
 
 
-class IntentResponse(BaseModel):
-    industry: str
-    goal: str
-    confidence: float
+class ClarificationResponse(BaseModel):
+    workflow:dict
+    need_clarification:bool
+    questions:List[str]=[]
