@@ -175,7 +175,7 @@ const stopRecording = () => {
   setRecording(false);
 };
 
-
+ const [followupQuestions,setFollowupQuestions] =useState([]);
 
   // Saved manual positions: { nodeId: { x, y } }
   const savedPositionsRef = useRef({});
@@ -308,11 +308,42 @@ if(workflowId) return ;
       intent,
       plannedDsl,
     );
+    if(result.questions){
+    setFollowupQuestions(result.questions || []);
+  }
+
 
     const dsl = result.dsl || result;
     localStorage.removeItem("current_workflow_id")
     applyDsl(dsl);
+      try {
+  const response = await fetch(
+    "https://autoflow-ai-production.up.railway.app/api/v1/ai/parse-intent",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt: fullPrompt,
+      }),
+    }
+  );
 
+  const clarificationData = await response.json();
+
+  console.log("Clarification:", clarificationData);
+
+  if (clarificationData.questions) {
+    setFollowupQuestions(
+      clarificationData.questions
+    );
+  }
+} catch (err) {
+  console.error("Clarification error:", err);
+}
+
+    
     const nodeCount = dsl.nodes?.length || 0;
     const stats = result.graph_stats;
     const summary = stats
@@ -668,6 +699,51 @@ if(workflowId) return ;
           </div>
         </div>
 
+        {followupQuestions.length > 0 && (
+       <div className="mt-4">
+     <p className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-3">
+  Suggested refinements
+</p>
+
+<div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+  {followupQuestions.map((q, index) => (
+    <div
+      key={index}
+      className="group relative flex-shrink-0"
+    >
+      <button
+        type="button"
+        className="flex items-center gap-2 max-w-[260px] pl-3 pr-7 py-1.5 rounded-full
+                   bg-gray-800/80 hover:bg-gray-700 border border-gray-700/50
+                   text-xs text-gray-200 whitespace-nowrap overflow-hidden
+                   transition-colors"
+        onClick={() => setChatInput(q)}
+        title={q}
+      >
+        <span className="truncate">{q}</span>
+      </button>
+
+      <button
+        type="button"
+        aria-label="Remove suggestion"
+        className="absolute right-2 top-1/2 -translate-y-1/2
+                   text-gray-500 hover:text-red-400
+                   opacity-0 group-hover:opacity-100
+                   transition-opacity text-xs"
+        onClick={(e) => {
+          e.stopPropagation();
+          setFollowupQuestions(prev => prev.filter((_, i) => i !== index));
+        }}
+      >
+        ✕
+      </button>
+    </div>
+  ))}
+</div>
+  </div>
+)}
+
+
         {/* Chat Input */}
         <div className="px-4 pt-2 pb-4 flex-shrink-0 border-t border-white/8">
           <div className="flex gap-2 items-end">
@@ -725,3 +801,7 @@ if(workflowId) return ;
     </div>
   );
 }
+
+
+
+
