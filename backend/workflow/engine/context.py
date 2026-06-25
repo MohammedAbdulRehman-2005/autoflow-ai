@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import logging
-from jinja2 import BaseLoader, Environment, StrictUndefined
+from jinja2 import BaseLoader, Environment, StrictUndefined, Undefined
 
 logger = logging.getLogger(__name__)
 
