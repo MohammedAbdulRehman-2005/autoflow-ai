@@ -283,6 +283,19 @@ async def plan_workflow(
     # Build the user message from the structured intent
     user_message = _build_user_message(workflow_name, intent, existing_dsl=existing_dsl)
 
+    # ── Inject Live Integration Context ───────────────────────────────────────
+    integration_names = [i.lower() for i in (intent.integrations or [])]
+    if "slack" in integration_names:
+        from backend.integrations.context_fetcher import fetch_slack_channels_context
+        slack_context = await fetch_slack_channels_context(user_id, db)
+        if slack_context:
+            user_message += (
+                f"\n\n[CRITICAL INTEGRATION CONTEXT]\n"
+                f"When configuring a Slack node's 'channel' parameter, you MUST use one of these exact IDs. "
+                f"Never use a channel name or a #-prefixed string.\n"
+                f"{slack_context}\n"
+            )
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user",   "content": user_message},
