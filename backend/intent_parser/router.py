@@ -6,10 +6,8 @@ from backend.intent_parser.schemas import (
 
 )
 
-from backend.intent_parser.service import (
-     parse_user_intent,
-     generate_followup_questions,
-)
+from backend.intent_parser.service import parse_user_intent
+from backend.intent_parser.gemini_followup import generate_followup_questions
 
 router = APIRouter(
     prefix="/ai",
@@ -26,7 +24,7 @@ def parse_intent(request : IntentRequest):
 
     intent = parse_user_intent(request.prompt)
 
-    questions = generate_followup_questions(intent)
+    questions = generate_followup_questions(request.prompt,intent)
 
     return{
          "workflow":intent,
