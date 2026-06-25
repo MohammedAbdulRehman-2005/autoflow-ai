@@ -100,7 +100,7 @@ class SlackPostMessageExecutor(BaseExecutor):
         context: ExecutionContext,
         resolved_params: dict[str, Any],
     ) -> ExecutorResult:
-        channel = os.getenv("SLACK_CHANNEL") or resolved_params.get("channel", "")
+        channel = resolved_params.get("channel", "")
         text = resolved_params.get("text", "")
         blocks = resolved_params.get("blocks")
         username = resolved_params.get("username")
