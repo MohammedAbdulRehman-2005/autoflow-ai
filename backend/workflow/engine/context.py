@@ -20,7 +20,10 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from jinja2 import BaseLoader, Environment, Undefined
+import logging
+from jinja2 import BaseLoader, Environment, StrictUndefined
+
+logger = logging.getLogger(__name__)
 
 try:
     from sqlalchemy.orm import Session
@@ -38,12 +41,12 @@ class _SilentUndefined(Undefined):
     def __getitem__(self, key): return _SilentUndefined()
 
 
-# Jinja2 environment — sandboxed, no file loading, silent on missing vars
+# Jinja2 environment — sandboxed, no file loading, loud on missing vars
 _jinja_env = Environment(
     loader=BaseLoader(),
     variable_start_string="{{",
     variable_end_string="}}",
-    undefined=_SilentUndefined,
+    undefined=StrictUndefined,
     autoescape=False,
 )
 
@@ -124,9 +127,10 @@ class ExecutionContext:
             "env": {k: v for k, v in os.environ.items()},
         }
 
-        # Each node's output is accessible by its DSL ID
+        # Each node's output is accessible by its DSL ID.
+        # Wrap it in 'output' so template paths like {{node.output.field}} resolve correctly.
         for node_id, output in self._node_outputs.items():
-            jinja_ctx[node_id] = output
+            jinja_ctx[node_id] = {"output": output}
 
         # Current loop item
         if self._loop_item is not None:
@@ -177,8 +181,9 @@ class ExecutionContext:
                     pass
 
             return rendered
-        except Exception:
-            # Never crash the engine on template errors — return original
+        except Exception as e:
+            # Never crash the engine on template errors — log warning and return original
+            logger.warning(f"[Runner] Template resolution failed for '{template_str}': {e}")
             return template_str
 
     def resolve_params(self, params: dict[str, Any]) -> dict[str, Any]:
