@@ -1,13 +1,10 @@
 import os
 from dotenv import load_dotenv
 import json
-import google.generativeai as genai
+from google import genai
 load_dotenv()
 
-
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-model = genai.GenerativeModel("gemini-2.5-flash")
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 def generate_followup_questions(user_prompt: str, workflow: dict):
@@ -61,7 +58,10 @@ Example:
 """
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
 
         text = response.text.strip()
 
