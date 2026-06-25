@@ -62,7 +62,7 @@ PROVIDER_CONFIG: dict[str, dict] = {
         "client_id_env": "GOOGLE_CLIENT_ID",
         "client_secret_env": "GOOGLE_CLIENT_SECRET",
         "redirect_uri_env": "GOOGLE_REDIRECT_URI",
-        "extra_params": {"access_type": "offline", "prompt": "consent"},
+        "extra_params": {"access_type": "offline", "prompt": "select_account consent"},
     },
     "slack": {
         "auth_url": "https://slack.com/oauth/v2/authorize",

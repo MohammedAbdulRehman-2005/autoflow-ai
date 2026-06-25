@@ -40,10 +40,6 @@ def _get_slack_token(context: ExecutionContext) -> str | None:
     Returns None if no Slack integration is found or the token is missing.
     """
     try:
-        env_token = os.getenv("SLACK_BOT_TOKEN")
-        if env_token:
-            return env_token
-
         from backend.integrations.service import decrypt_credentials
         from backend.database.models import Integration, IntegrationService
 
