@@ -332,17 +332,20 @@ if(workflowId) return ;
 
   const clarificationData = await response.json();
 
-  console.log("Clarification:", clarificationData);
-
-  if (clarificationData.questions) {
+  if (clarificationData.need_clarification) {
+    setChatHistory(prev => prev.slice(0,-1));
     setFollowupQuestions(
       clarificationData.questions
     );
+    setIsThinking(false);
+    return
   }
 } catch (err) {
   console.error("Clarification error:", err);
 }
-
+finally{
+  setIsThinking(false);
+}
     
     const nodeCount = dsl.nodes?.length || 0;
     const stats = result.graph_stats;
