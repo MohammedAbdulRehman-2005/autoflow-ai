@@ -33,12 +33,21 @@ def _get_slack_token(context: ExecutionContext) -> str | None:
     """
     Retrieve the Slack bot token from the user's stored integration credentials.
 
-    The token is stored in the encrypted credentials blob under the key
-    'access_token' (bot token from Slack OAuth v2 response) OR
-    'authed_user.access_token' (user token, less common for bots).
+    Checks context.get_secret("slack") first (populated by CredentialResolver
+    before the node runs). Falls back to a direct DB lookup for legacy call sites.
 
     Returns None if no Slack integration is found or the token is missing.
     """
+    # Fast path: CredentialResolver already populated the secret this run.
+    cached = context.get_secret("slack")
+    if cached is not None:
+        token = cached.get("access_token")
+        if not token:
+            raw = cached.get("raw", {})
+            token = raw.get("authed_user", {}).get("access_token")
+        return token
+
+    # Fallback: direct DB query (pre-CredentialResolver behaviour).
     try:
         from backend.integrations.service import decrypt_credentials
         from backend.database.models import Integration, IntegrationService

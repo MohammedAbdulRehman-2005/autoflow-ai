@@ -15,9 +15,10 @@ Terminal node rule (shared with graph.py):
   so the definition never diverges.
 """
 
+import re
 from typing import Any
 
-from backend.workflow.dsl.schema import NodeType, OperationType, WorkflowDSL, WorkflowNodeDSL
+from backend.workflow.dsl.schema import NodeType, OperationType, ServiceType, WorkflowDSL, WorkflowNodeDSL
 from backend.workflow.validator.models import ErrorCode, ValidationResult
 
 
@@ -128,6 +129,28 @@ OPERATION_REQUIRED_PARAMS: dict[str, dict] = {
     OperationType.webhook_listen.value: {"required": [], "allowed": ["path", "secret", "method"]},
     OperationType.manual_trigger.value: {"required": [], "allowed": ["description"]},
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG #2: Slack placeholder channel patterns
+# The LLM frequently generates channel names like 'all-xyz', 'your-channel',
+# or 'channel-name'. These are placeholders that will fail at runtime.
+# We warn at save time so the user can fix before running.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PLACEHOLDER_CHANNEL_RE = re.compile(
+    r"^(#?)("
+    r"all-[a-z]|"          # 'all-x', 'all-xyz' (LLM favorite)
+    r"your[-_]channel|"    # 'your-channel', 'your_channel'
+    r"channel[-_]name|"    # 'channel-name'
+    r"slack[-_]channel|"   # 'slack-channel'
+    r"general[-_]channel|" # 'general-channel'
+    r"<channel>|"          # '<channel>'
+    r"channel_id|"         # 'channel_id'
+    r"my[-_]channel"
+    r")$",
+    re.IGNORECASE,
+)
+
 
 # Params that must be lists (not strings or dicts) when present
 LIST_PARAMS = {
@@ -267,6 +290,25 @@ def check_schema(dsl: WorkflowDSL) -> ValidationResult:
                     code=ErrorCode.MISSING_CONDITION_BRANCH,
                     node_id=node.id,
                     message=f"Condition node '{node.label}' has no 'false' branch — falsy results will dead-end.",
+                )
+
+        # ── Bug #2: Slack placeholder channel warning ──────────────────────────
+        # Detect LLM-generated placeholder channel names at save time.
+        if (
+            node.service == ServiceType.slack
+            and node.operation == OperationType.post_message
+        ):
+            channel = node.params.get("channel", "")
+            if channel and isinstance(channel, str) and _PLACEHOLDER_CHANNEL_RE.match(channel.strip()):
+                result.add_warning(
+                    code=ErrorCode.PLACEHOLDER_CHANNEL,
+                    node_id=node.id,
+                    message=(
+                        f"Slack node '{node.label}' has channel='{channel}' which looks like "
+                        f"a placeholder. Replace with a real Slack channel name (e.g. '#general') "
+                        f"or channel ID before running."
+                    ),
+                    detail={"channel": channel},
                 )
 
         # ── Mid-chain action nodes without on_failure get a warning ─────────────

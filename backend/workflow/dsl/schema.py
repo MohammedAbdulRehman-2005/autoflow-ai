@@ -13,6 +13,7 @@ Template variable syntax: {{node_id.output.field}}, {{trigger.payload.field}},
 
 import re
 import uuid
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -196,6 +197,13 @@ class WorkflowNodeDSL(BaseModel):
         ),
     )
 
+    # Credential reference — resolved by CredentialResolver at runtime (RFC-001 §8)
+    # Optional in Sprint 1; populated by Node Inspector in Sprint 2.
+    credential_id: Optional[str] = Field(
+        None,
+        description="Named credential ID; resolved by CredentialResolver at runtime.",
+    )
+
     # Routing
     on_success: Optional[str] = Field(
         None,
@@ -263,7 +271,30 @@ class WorkflowDSL(BaseModel):
     )
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
+
+    # ── DSL Versioning (RFC-002 §4) ──────────────────────────────────────────
+    # version is bumped by WorkflowMutationService on every accepted patch.
+    # migration_version is bumped only when the DSL shape itself changes.
+    # compiler_version lets the engine reject DSLs built for an incompatible schema.
     version: int = Field(default=1, ge=1)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When this DSL was first created.",
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When this DSL was last mutated (bumped by WorkflowMutationService).",
+    )
+    migration_version: int = Field(
+        default=1,
+        ge=1,
+        description="Incremented when the DSL shape changes in a backward-incompatible way.",
+    )
+    compiler_version: str = Field(
+        default="1.0.0",
+        description="Engine compiler version this DSL was built for.",
+    )
+
     industry: Optional[str] = Field(None, description="Industry context, e.g. 'healthcare'")
     trigger: TriggerConfig
     nodes: List[WorkflowNodeDSL] = Field(..., min_length=1)

@@ -31,6 +31,8 @@ import {
 import WorkflowNode from '../components/WorkflowNode';
 import { dslToFlow } from '../utils/flowLayout';
 import { workflowApi } from '../services/workflowApi';
+import { mutationService } from '../services/mutationService';
+import { eventBus } from '../services/eventBus';
 
 // ── React Flow custom node type map ──────────────────────────────────────────
 const nodeTypes = { workflowNode: WorkflowNode };
@@ -225,15 +227,15 @@ useEffect(() => {
 
   workflowApi.get(workflowId)
     .then((wf) => {
-      
+      // Canonical column name is ai_context_json; fall through to legacy names.
       const dsl =
-      wf?.dsl || 
-      wf?.dsl_json ||
-      wf?.ai_context_json ||
-      wf?.plan || 
-      wf?.workflow_dsl || 
-      wf?.definition ;
-      
+        wf?.ai_context_json ||
+        wf?.dsl ||
+        wf?.dsl_json ||
+        wf?.plan ||
+        wf?.workflow_dsl ||
+        wf?.definition;
+
       if (dsl) {
         applyDsl(dsl);
       }
@@ -314,8 +316,13 @@ if(workflowId) return ;
 
 
     const dsl = result.dsl || result;
-    localStorage.removeItem("current_workflow_id")
-    applyDsl(dsl);
+    localStorage.removeItem("current_workflow_id");
+
+    // Route through mutation service instead of calling applyDsl directly.
+    // This bumps version, records history, and emits WorkflowPatched.
+    const newDsl = mutationService.replaceDsl(dsl, 'ai', 'AI planner: ' + fullPrompt.slice(0, 60));
+    applyDsl(newDsl);
+
       try {
   const response = await fetch(
     "https://autoflow-ai-production.up.railway.app/api/v1/ai/parse-intent",
@@ -449,12 +456,25 @@ finally{
 
       addLog('Saving workflow...');
       const desc = plannedDsl.description || '';
-      const created = await workflowApi.create({ name: workflowName, description: desc, dsl: plannedDsl });
-      localStorage.setItem("current_workflow_id",created.id);
+
+      // Use update() for existing workflows, create() for new ones.
+      const existingId = localStorage.getItem("current_workflow_id");
+      let saved;
+      if (existingId) {
+        saved = await workflowApi.update(existingId, { name: workflowName, description: desc, dsl: plannedDsl });
+        addLog(`Updated "${saved.name}" (ID: ${saved.id})`);
+      } else {
+        saved = await workflowApi.create({ name: workflowName, description: desc, dsl: plannedDsl });
+        localStorage.setItem("current_workflow_id", saved.id);
+        addLog(`Saved as "${saved.name}" (ID: ${saved.id})`);
+      }
+
       localStorage.removeItem("draft_workflow");
-      setSaveResult(created);
-      window.dispatchEvent(new Event("workflow-saved"));
-      addLog(`Saved as "${created.name}" (ID: ${created.id})`);
+      setSaveResult(saved);
+
+      // Notify via event bus (replaces window.dispatchEvent hack)
+      mutationService.notifySaved({ workflowId: saved.id, name: saved.name });
+
     } catch (err) {
       addLog(`Save error: ${err.message}`);
     } finally {

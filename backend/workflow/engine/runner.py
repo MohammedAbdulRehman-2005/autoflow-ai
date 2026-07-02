@@ -33,8 +33,10 @@ from backend.database.models import (
 )
 from backend.workflow.dsl.schema import NodeType, WorkflowDSL, WorkflowNodeDSL
 from backend.workflow.engine.context import ExecutionContext
+from backend.workflow.engine.credential_resolver import CredentialResolver
 from backend.workflow.engine.executors.base import ExecutorResult
 from backend.workflow.engine.registry import get_executor
+from backend.workflow.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +67,8 @@ class WorkflowRunner:
         db: Session,
         trigger_payload: dict[str, Any] = None,
         user_id: uuid.UUID = None,
+        workflow_id: uuid.UUID = None,
+        triggered_by: str = "manual",
     ):
         self.dsl = dsl
         self.run_id = run_id
@@ -86,7 +90,12 @@ class WorkflowRunner:
             workflow_variables=dsl.variables.copy(),
             db=db,
             user_id=user_id,
+            workflow_id=workflow_id,
+            triggered_by=triggered_by,
         )
+
+        # CredentialResolver — single point for credential lookup (RFC-001 §8)
+        self._credential_resolver = CredentialResolver(db=db)
 
         # Track visited nodes to prevent infinite loops
         self._visit_count = 0
@@ -104,6 +113,11 @@ class WorkflowRunner:
         Updates the WorkflowRun status in the DB at start and completion.
         """
         self._update_run_status(RunStatus.running, started_at=_utcnow())
+        event_bus.emit("ExecutionStarted", {
+            "run_id": str(self.run_id),
+            "workflow_id": self.context.execution_metadata.get("workflow_id"),
+            "triggered_by": self.context.execution_metadata.get("triggered_by"),
+        })
 
         try:
             trigger_node = next(
@@ -120,6 +134,11 @@ class WorkflowRunner:
             # Completed without error
             self._update_run_status(RunStatus.success, finished_at=_utcnow())
             logger.info(f"[Runner] Run {self.run_id} completed successfully.")
+            event_bus.emit("ExecutionFinished", {
+                "run_id": str(self.run_id),
+                "workflow_id": self.context.execution_metadata.get("workflow_id"),
+                "status": "success",
+            })
 
         except Exception as e:
             error_msg = str(e)
@@ -130,6 +149,12 @@ class WorkflowRunner:
                 finished_at=_utcnow(),
                 error_message=error_msg,
             )
+            event_bus.emit("ExecutionFinished", {
+                "run_id": str(self.run_id),
+                "workflow_id": self.context.execution_metadata.get("workflow_id"),
+                "status": "failed",
+                "error": error_msg,
+            })
             raise
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -285,6 +310,10 @@ class WorkflowRunner:
         # Resolve template variables in params ONCE before retrying
         resolved_params = self.context.resolve_params(node.params)
 
+        # Resolve credentials for this node (RFC-001 §8)
+        # Populates context.get_secret(service_name) before dispatch.
+        self._credential_resolver.resolve_for_node(node, self.context)
+
         last_result: Optional[ExecutorResult] = None
 
         for attempt in range(1, max_attempts + 1):
@@ -359,6 +388,13 @@ class WorkflowRunner:
             f"[Runner] Node '{node.id}' ({node.label}) failed after "
             f"{max_attempts} attempts. Last error: {last_result.error if last_result else 'unknown'}"
         )
+        event_bus.emit("NodeFailed", {
+            "run_id": str(self.run_id),
+            "node_id": node.id,
+            "node_label": node.label,
+            "error": last_result.error if last_result else "Max retry attempts exhausted.",
+            "attempts": max_attempts,
+        })
         return last_result or ExecutorResult.fail("Max retry attempts exhausted.")
 
     async def _dispatch_executor(
