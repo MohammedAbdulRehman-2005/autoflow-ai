@@ -84,3 +84,79 @@ class RunListResponse(BaseModel):
     workflow_id: uuid.UUID
     total: int
     runs: List[RunSummary]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPRINT 2 — Node Inspector Execute Step + Node Types endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+class NodeExecuteRequest(BaseModel):
+    """
+    Request body for POST /workflows/{workflow_id}/nodes/{node_id}/execute
+    
+    params_override: merged on top of the node's stored params for this
+    one-shot run only. Never persisted. The Inspector always reads latest
+    locally-patched params, so the frontend sends them here at click time.
+    """
+    node_id: str = Field(..., description="DSL node ID to execute.")
+    params_override: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Param overrides merged over stored node.params for this run only.",
+    )
+    trigger_payload: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional trigger context injected into ExecutionContext.",
+    )
+
+
+class NodeExecuteResponse(BaseModel):
+    """
+    Response from POST /workflows/{workflow_id}/nodes/{node_id}/execute
+
+    SECRET EXCLUSION GUARANTEE—matches WorkflowContext.snapshot() contract:
+    - output is scrubbed of any key whose name contains 'token', 'secret',
+      'password', 'key', 'credential', or 'auth' (case-insensitive).
+    - This is enforced in WorkflowRunner.execute_single_node(), not assumed.
+    - error_type classifies the failure layer (RFC-002 §3 Error Boundaries)
+      so the Inspector can surface appropriate recovery affordances.
+
+    execute_once and always_output_data are no-ops in this context:
+    they only apply to full workflow runs with a real run_id.
+    """
+    node_id: str
+    success: bool
+    output: Dict[str, Any]     # Scrubbed — no secrets
+    error: Optional[str] = None
+    error_type: Optional[str] = Field(
+        None,
+        description="'node' | 'integration' | 'credential' | 'compiler' | 'validation'",
+    )
+    duration_ms: int
+    executed_at: datetime
+
+
+# ── Node Types ─────────────────────────────────────────────────────────────────────────
+
+class NodeMetadataDTO(BaseModel):
+    """
+    Safe serialization of a NodePlugin for the /workflows/node-types endpoint.
+
+    NEVER serialize NodePlugin directly: it contains non-serializable callables
+    (executor_class, validator) and would leak implementation internals to the client.
+    This DTO exposes only what the Inspector UI and the parameter form generator need.
+    """
+    service: str
+    operation: str
+    node_type: str
+    label: str
+    icon: str
+    parameter_schema: Dict[str, Any]
+    output_schema: Dict[str, Any]
+    default_params: Dict[str, Any]
+    doc_url: Optional[str] = None
+
+
+class NodeTypesResponse(BaseModel):
+    """Response from GET /workflows/node-types."""
+    plugins: List[NodeMetadataDTO]
+    total: int

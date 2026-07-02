@@ -145,6 +145,7 @@ def _register_all() -> None:
         label="Scheduled Trigger",
         icon="Clock",
         executor_class=TriggerExecutor,
+        doc_url="https://docs.autoflow.ai/nodes/scheduler",
         parameter_schema={
             "type": "object",
             "required": ["cron_expression"],
@@ -153,11 +154,13 @@ def _register_all() -> None:
                     "type": "string",
                     "description": "Cron expression (5 fields). E.g. '0 9 * * 1' for Mondays at 9 AM.",
                     "pattern": r"^(\S+\s){4}\S+$",
+                    "ui": {"widget": "text", "placeholder": "0 9 * * 1", "helpText": "5-field cron: minute hour day month weekday."},
                 },
                 "timezone": {
                     "type": "string",
                     "default": "UTC",
                     "description": "IANA timezone, e.g. 'America/New_York'.",
+                    "ui": {"widget": "text", "placeholder": "UTC", "helpText": "IANA timezone name."},
                 },
             },
         },
@@ -178,16 +181,41 @@ def _register_all() -> None:
         label="Send Email",
         icon="Mail",
         executor_class=GmailSendEmailExecutor,
+        doc_url="https://developers.google.com/gmail/api/reference/rest",
         parameter_schema={
             "type": "object",
             "required": ["to", "subject", "body"],
             "properties": {
-                "to":      {"type": "string", "description": "Recipient email address(es)."},
-                "subject": {"type": "string", "description": "Email subject line."},
-                "body":    {"type": "string", "description": "Email body (plain text or HTML)."},
-                "cc":      {"type": "string", "description": "CC recipients (comma-separated)."},
-                "bcc":     {"type": "string", "description": "BCC recipients (comma-separated)."},
-                "credential_id": {"type": "string", "description": "Named Gmail credential (optional)."},
+                "to":      {
+                    "type": "string",
+                    "description": "Recipient email address(es).",
+                    "ui": {"widget": "text", "placeholder": "recipient@example.com", "helpText": "Comma-separate multiple addresses."},
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject line.",
+                    "ui": {"widget": "text", "placeholder": "Subject line"},
+                },
+                "body":    {
+                    "type": "string",
+                    "description": "Email body (plain text or HTML).",
+                    "ui": {"widget": "textarea", "placeholder": "Email body or {{node_id.output.field}}", "helpText": "Supports template variables."},
+                },
+                "cc":      {
+                    "type": "string",
+                    "description": "CC recipients (comma-separated).",
+                    "ui": {"widget": "text", "placeholder": "cc@example.com"},
+                },
+                "bcc":     {
+                    "type": "string",
+                    "description": "BCC recipients (comma-separated).",
+                    "ui": {"widget": "text", "placeholder": "bcc@example.com"},
+                },
+                "credential_id": {
+                    "type": "string",
+                    "description": "Named Gmail credential (optional).",
+                    "ui": {"widget": "credential_select", "helpText": "Leave blank to use your default Gmail connection."},
+                },
             },
         },
         output_schema={
@@ -211,6 +239,7 @@ def _register_all() -> None:
         label="Get Emails",
         icon="Inbox",
         executor_class=GmailGetEmailsExecutor,
+        doc_url="https://developers.google.com/gmail/api/reference/rest",
         parameter_schema={
             "type": "object",
             "required": ["query"],
@@ -218,20 +247,23 @@ def _register_all() -> None:
                 "query": {
                     "type": "string",
                     "description": "Gmail search query, e.g. 'is:unread from:boss@company.com'.",
+                    "ui": {"widget": "text", "placeholder": "is:unread from:example@gmail.com", "helpText": "Standard Gmail search syntax."},
                 },
                 "max_results": {
                     "type": "integer",
                     "default": 10,
                     "minimum": 1,
                     "maximum": 100,
+                    "ui": {"widget": "number", "helpText": "Maximum emails to fetch (1–100)."},
                 },
-                "credential_id": {"type": "string", "description": "Named Gmail credential (optional)."},
+                "credential_id": {
+                    "type": "string",
+                    "description": "Named Gmail credential (optional).",
+                    "ui": {"widget": "credential_select", "helpText": "Leave blank to use your default Gmail connection."},
+                },
             },
         },
         # Pinned from gmail.py lines 172 & 202-208 — the EXACT output shape.
-        # Bug #1 validator uses this to catch condition expressions referencing
-        # non-existent keys (e.g. output.email_list which doesn't exist;
-        # the real key is output.emails).
         output_schema={
             "type": "object",
             "properties": {
@@ -267,6 +299,7 @@ def _register_all() -> None:
         label="Post Slack Message",
         icon="MessageSquare",
         executor_class=SlackPostMessageExecutor,
+        doc_url="https://api.slack.com/methods/chat.postMessage",
         parameter_schema={
             "type": "object",
             "required": ["channel", "text"],
@@ -274,12 +307,33 @@ def _register_all() -> None:
                 "channel": {
                     "type": "string",
                     "description": "Slack channel name (e.g. '#general') or channel ID.",
+                    "ui": {"widget": "text", "placeholder": "#general", "helpText": "Use # prefix for channel names."},
                 },
-                "text":       {"type": "string", "description": "Message text (Slack mrkdwn)."},
-                "blocks":     {"type": "array",  "description": "Slack Block Kit JSON array."},
-                "username":   {"type": "string", "description": "Override bot display name."},
-                "icon_emoji": {"type": "string", "description": "Override bot icon emoji."},
-                "credential_id": {"type": "string", "description": "Named Slack credential (optional)."},
+                "text":       {
+                    "type": "string",
+                    "description": "Message text (Slack mrkdwn).",
+                    "ui": {"widget": "textarea", "placeholder": "Message text or {{node_id.output.field}}", "helpText": "Supports Slack mrkdwn formatting and template variables."},
+                },
+                "blocks":     {
+                    "type": "array",
+                    "description": "Slack Block Kit JSON array.",
+                    "ui": {"widget": "json", "helpText": "Optional Block Kit payload. Overrides text if provided."},
+                },
+                "username":   {
+                    "type": "string",
+                    "description": "Override bot display name.",
+                    "ui": {"widget": "text", "placeholder": "AutoFlow Bot"},
+                },
+                "icon_emoji": {
+                    "type": "string",
+                    "description": "Override bot icon emoji.",
+                    "ui": {"widget": "text", "placeholder": ":robot_face:"},
+                },
+                "credential_id": {
+                    "type": "string",
+                    "description": "Named Slack credential (optional).",
+                    "ui": {"widget": "credential_select", "helpText": "Leave blank to use your default Slack connection."},
+                },
             },
         },
         output_schema={
@@ -303,19 +357,41 @@ def _register_all() -> None:
         label="AI: Generate Text",
         icon="Sparkles",
         executor_class=LLMGenerateExecutor,
+        doc_url="https://console.groq.com/docs/openai",
         parameter_schema={
             "type": "object",
             "required": ["user_prompt"],
             "properties": {
-                "user_prompt":   {"type": "string", "description": "The user message to the LLM."},
-                "system_prompt": {"type": "string", "description": "System instructions for the LLM."},
+                "user_prompt":   {
+                    "type": "string",
+                    "description": "The user message to the LLM.",
+                    "ui": {"widget": "textarea", "placeholder": "Enter prompt or {{node_id.output.field}}", "helpText": "Supports template variables from previous nodes."},
+                },
+                "system_prompt": {
+                    "type": "string",
+                    "description": "System instructions for the LLM.",
+                    "ui": {"widget": "textarea", "placeholder": "You are a helpful assistant..."},
+                },
                 "model": {
                     "type": "string",
                     "default": "llama-3.3-70b-versatile",
                     "description": "Groq model name.",
+                    "enum": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
+                    "ui": {"widget": "select", "helpText": "Choose the Groq model to use."},
                 },
-                "max_tokens":   {"type": "integer", "default": 1024, "minimum": 1},
-                "temperature":  {"type": "number",  "default": 0.7, "minimum": 0.0, "maximum": 2.0},
+                "max_tokens":   {
+                    "type": "integer",
+                    "default": 1024,
+                    "minimum": 1,
+                    "ui": {"widget": "number", "helpText": "Maximum tokens in the response."},
+                },
+                "temperature":  {
+                    "type": "number",
+                    "default": 0.7,
+                    "minimum": 0.0,
+                    "maximum": 2.0,
+                    "ui": {"widget": "number", "helpText": "0 = deterministic, 2 = very creative."},
+                },
             },
         },
         output_schema={
@@ -344,6 +420,7 @@ def _register_all() -> None:
         label="Condition / Branch",
         icon="GitBranch",
         executor_class=ConditionBranchExecutor,
+        doc_url="https://docs.autoflow.ai/nodes/condition",
         parameter_schema={
             "type": "object",
             "required": ["condition"],
@@ -355,6 +432,11 @@ def _register_all() -> None:
                         "E.g. '{{get_emails_1.output.count > 0}}'. "
                         "May also be a pre-resolved value like 'true' or '5 > 0'."
                     ),
+                    "ui": {
+                        "widget": "expression",
+                        "placeholder": "{{node_id.output.field}} > 0",
+                        "helpText": "References output keys from upstream nodes. Apply is required before saving.",
+                    },
                 },
             },
         },
@@ -377,6 +459,7 @@ def _register_all() -> None:
         label="Set Variable",
         icon="Variable",
         executor_class=SetVariableExecutor,
+        doc_url="https://docs.autoflow.ai/nodes/set-variable",
         parameter_schema={
             "type": "object",
             "required": ["variable", "value"],
@@ -384,9 +467,11 @@ def _register_all() -> None:
                 "variable": {
                     "type": "string",
                     "description": "Variable name (accessible as {{vars.name}} downstream).",
+                    "ui": {"widget": "text", "placeholder": "my_variable", "helpText": "Accessible as {{vars.my_variable}} in downstream nodes."},
                 },
                 "value": {
                     "description": "Value to set (string, number, or template expression).",
+                    "ui": {"widget": "text", "placeholder": "Value or {{node_id.output.field}}"},
                 },
             },
         },

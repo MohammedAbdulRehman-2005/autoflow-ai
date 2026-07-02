@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 
 import WorkflowNode from '../components/WorkflowNode';
+import NodeInspector from '../components/NodeInspector';
 import { dslToFlow } from '../utils/flowLayout';
 import { workflowApi } from '../services/workflowApi';
 import { mutationService } from '../services/mutationService';
@@ -207,7 +208,52 @@ const stopRecording = () => {
   const [validationResult, setValidationResult] = useState(null);
   const [showTerminal, setShowTerminal] = useState(false);
 
+  // ── Node Inspector state (Sprint 2) ──────────────────────────────────────
+  // selectedNode: the DSL node object currently open in the inspector, or null.
+  const [selectedNode, setSelectedNode] = useState(null);
+  // inspectorSessionCache: { [nodeId]: NodeExecuteResponse } — in-memory only,
+  // never persisted, cleared implicitly when modal closes (not on page reload).
+  const [inspectorSessionCache, setInspectorSessionCache] = useState({});
+
   const addLog = (msg) => setTerminalLogs(prev => [...prev, `${new Date().toLocaleTimeString()} › ${msg}`]);
+
+  // ── Node Inspector callbacks (Sprint 2) ──────────────────────────────────
+  const handleNodeClick = useCallback((_event, rfNode) => {
+    if (!plannedDsl) return;
+    // rfNode.id === DSL node id (set by dslToFlow)
+    const dslNode = plannedDsl.nodes?.find(n => n.id === rfNode.id);
+    if (dslNode) setSelectedNode(dslNode);
+  }, [plannedDsl]);
+
+  const handleInspectorParamChange = useCallback((nodeId, key, value) => {
+    // Patch the DSL node's params through mutationService
+    const patch = { params: { [key]: value } };
+    const updated = mutationService.applyPatch({ nodeId, patch, actor: 'user', reason: 'inspector_param_edit' });
+    if (updated) applyDsl(updated);
+    // Keep selectedNode in sync so Inspector re-renders with new value
+    setSelectedNode(prev => prev?.id === nodeId
+      ? { ...prev, params: { ...prev.params, [key]: value } }
+      : prev
+    );
+  }, [applyDsl]);
+
+  const handleInspectorSettingChange = useCallback((nodeId, key, value) => {
+    const patch = { [key]: value };
+    const updated = mutationService.applyPatch({ nodeId, patch, actor: 'user', reason: 'inspector_setting_edit' });
+    if (updated) applyDsl(updated);
+    setSelectedNode(prev => prev?.id === nodeId ? { ...prev, [key]: value } : prev);
+  }, [applyDsl]);
+
+  const handleInspectorCacheUpdate = useCallback((nodeId, result) => {
+    setInspectorSessionCache(prev => ({ ...prev, [nodeId]: result }));
+  }, []);
+
+  const handleInspectorClose = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
+
+  // Workflow ID from localStorage (used by Inspector for Execute Step)
+  const currentWorkflowId = localStorage.getItem('current_workflow_id');
 
   // ── Apply a new DSL to the canvas ────────────────────────────────────────
   const applyDsl = useCallback((dsl) => {
@@ -544,7 +590,7 @@ finally{
     "Send WhatsApp reminders 24 hours before any Google Calendar event",
   ];
 
-  return (
+  const mainLayout = (
     <div className="flex h-[calc(100vh-7rem)] gap-0 overflow-hidden -m-6 select-none">
 
       {/* ── Left Toolbar ──────────────────────────────────────────────────── */}
@@ -637,6 +683,7 @@ finally{
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
             onNodeDragStop={onNodeDragStop}
+            onNodeClick={handleNodeClick}
             fitView
             fitViewOptions={{ padding: 0.3, maxZoom: 1.2 }}
             minZoom={0.2}
@@ -852,8 +899,22 @@ finally{
       </div>
     </div>
   );
+
+  return (
+    <>
+      {mainLayout}
+      {selectedNode && currentWorkflowId && (
+        <NodeInspector
+          key={selectedNode.id}
+          node={selectedNode}
+          workflowId={currentWorkflowId}
+          sessionCache={inspectorSessionCache}
+          onParamChange={handleInspectorParamChange}
+          onSettingChange={handleInspectorSettingChange}
+          onCacheUpdate={handleInspectorCacheUpdate}
+          onClose={handleInspectorClose}
+        />
+      )}
+    </>
+  );
 }
-
-
-
-

@@ -5,6 +5,10 @@
 
 import { api } from './apiClient';
 
+// Session-level cache for node types — near-static registry data.
+// Populated on first call to getNodeTypes(), reused for the browser session.
+let _nodeTypesCache = null;
+
 export const workflowApi = {
   // ─── Workflow CRUD ────────────────────────────────────────────────────────
 
@@ -143,5 +147,52 @@ export const workflowApi = {
    */
   getNextRun: async (workflowId) => {
     return api.get(`/api/v1/workflows/${workflowId}/next-run`);
+  },
+
+  // ─── Node Inspector (Sprint 2) ───────────────────────────────────────────
+
+  /**
+   * Get all registered node types (NodeRegistry) as safe DTOs.
+   * GET /api/v1/workflows/node-types
+   *
+   * Cached for the browser session — near-static registry data.
+   * Invalidate by calling workflowApi.clearNodeTypesCache().
+   */
+  getNodeTypes: async () => {
+    if (_nodeTypesCache) return _nodeTypesCache;
+    const result = await api.get('/api/v1/workflows/node-types');
+    _nodeTypesCache = result;
+    return result;
+  },
+
+  /**
+   * Clear the node types session cache (e.g. after plugin hot-reload in dev).
+   */
+  clearNodeTypesCache: () => {
+    _nodeTypesCache = null;
+  },
+
+  /**
+   * Execute a single node in isolation (Node Inspector “Execute Step”).
+   * POST /api/v1/workflows/:workflowId/nodes/:nodeId/execute
+   *
+   * - Calls WorkflowRunner.execute_single_node() — real credentials, real pipeline.
+   * - No DB run record written (ephemeral).
+   * - Output is scrubbed of secret-looking keys by the server.
+   * - execute_once and always_output_data are no-ops in this context.
+   *
+   * @param {string} workflowId
+   * @param {string} nodeId - DSL node ID (e.g. 'send_email_1')
+   * @param {object} opts
+   * @param {object} opts.paramsOverride - Latest locally-patched params (read at click time)
+   * @param {object} opts.triggerPayload - Optional trigger context
+   * @returns {Promise<NodeExecuteResponse>}
+   */
+  executeNode: async (workflowId, nodeId, { paramsOverride = {}, triggerPayload = {} } = {}) => {
+    return api.post(`/api/v1/workflows/${workflowId}/nodes/${nodeId}/execute`, {
+      node_id: nodeId,
+      params_override: paramsOverride,
+      trigger_payload: triggerPayload,
+    });
   },
 };

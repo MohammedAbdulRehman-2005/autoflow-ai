@@ -157,9 +157,64 @@ class WorkflowRunner:
             })
             raise
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────────
+    # PUBLIC: EXECUTE SINGLE NODE (Node Inspector Execute Step — RFC-002 §1)
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    async def execute_single_node(
+        self,
+        node: "WorkflowNodeDSL",
+        params_override: dict[str, Any] = None,
+    ) -> "ExecutorResult":
+        """
+        Execute one node in isolation — the Node Inspector "Execute Step" path.
+
+        CONTRACT (RFC-002 §1: same pipeline, not a separate code path):
+          - Uses the same CredentialResolver → ExecutionContext → Executor chain
+            as the full run. No mocks, no special cases.
+          - Runs exactly 1 attempt (no retry loop — single-shot by design).
+          - Does not write a DB WorkflowRun or WorkflowRunStepLog record
+            (ephemeral; the run_id on self.context is a throwaway UUID).
+          - Caller (router) is responsible for building the response DTO and
+            scrubbing secrets via _scrub_secrets() before returning to client.
+
+        execute_once and always_output_data are no-ops here:
+          They apply only to full runs with a persistent run_id.
+          This method logs a warning if either is True on the node
+          so operators know the setting was seen but not applied.
+
+        Args:
+            node            : The DSL node to execute (may be a copy with overridden params).
+            params_override : Merged on top of node.params for this call only.
+                              Never written back to the DSL.
+        """
+        if node.execute_once:
+            logger.info(
+                "[ExecuteStep] node '%s' has execute_once=True — "
+                "no-op in Execute Step context (applies to full runs only).",
+                node.id,
+            )
+        if node.always_output_data:
+            logger.info(
+                "[ExecuteStep] node '%s' has always_output_data=True — "
+                "no-op in Execute Step context (applies to full runs only).",
+                node.id,
+            )
+
+        # Merge param overrides (never persisted)
+        effective_params = {**node.params, **(params_override or {})}
+
+        # Resolve template variables against the context
+        resolved_params = self.context.resolve_params(effective_params)
+
+        # Resolve credentials — same path as full run (RFC-001 §8)
+        self._credential_resolver.resolve_for_node(node, self.context)
+
+        return await self._dispatch_executor(node, resolved_params)
+
+    # ─────────────────────────────────────────────────────────────────────────────
     # GRAPH TRAVERSAL
-    # ─────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────────
 
     async def _execute_from_node(self, node_id: str) -> None:
         """

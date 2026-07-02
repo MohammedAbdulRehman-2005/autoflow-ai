@@ -9,11 +9,18 @@ Run with:
 All tests are unit tests (no DB, no external API calls).
 """
 
+import os
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# ─── Pre-flight: set env vars required by Settings so imports don't fail ─────
+os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-sprint1-tests")
+os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -121,8 +121,31 @@ class OperationType(str, Enum):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TRIGGER CONFIG (discriminated union)
+# ERROR POLICY  (RFC-002 §3 Error Boundaries)
 # ─────────────────────────────────────────────────────────────────────────────
+
+class ErrorPolicy(str, Enum):
+    """
+    Per-node error policy — governs what happens when a node fails.
+
+    Interaction with on_failure routing (important — these are different things):
+      - "stop"     : The workflow halts immediately regardless of on_failure.
+                     on_failure is ignored. The run is marked FAILED.
+      - "continue" : The node is marked failed but the workflow continues.
+                     Execution routes to on_failure if set; otherwise on_success.
+                     Use when a failed node is non-blocking (e.g. a notification).
+      - "retry"    : Uses retry_policy (max_attempts, backoff). If all attempts
+                     are exhausted, falls through to on_failure like "continue".
+                     If retry_policy is absent, behaves like "stop" after 1 attempt.
+
+    Note: this field applies to full workflow runs only.
+    Execute Step in the Node Inspector always uses a single attempt ("stop" semantics).
+    """
+    stop     = "stop"
+    continue_ = "continue"   # underscore avoids clash with Python keyword
+    retry    = "retry"
+
+
 
 class ScheduleTriggerConfig(BaseModel):
     cron: str = Field(..., description="Cron expression e.g. '0 9 * * *'")
@@ -218,6 +241,46 @@ class WorkflowNodeDSL(BaseModel):
     retry_policy: Optional[RetryPolicy] = None
     timeout_seconds: Optional[int] = Field(None, ge=1, le=3600)
     is_disabled: bool = Field(default=False)
+
+    # ── Sprint 2 Settings fields (Node Inspector Settings tab) ────────────────
+    # All fields are optional and backward-compatible — existing stored DSLs
+    # without these fields will parse correctly using the defaults below.
+
+    error_policy: ErrorPolicy = Field(
+        default=ErrorPolicy.stop,
+        description=(
+            "What to do when this node fails. "
+            "'stop' halts the workflow; 'continue' routes to on_failure; "
+            "'retry' uses retry_policy then routes to on_failure."
+        ),
+    )
+
+    always_output_data: bool = Field(
+        default=False,
+        description=(
+            "If True, pass output downstream even if the node failed. "
+            "No-op in Execute Step context (single-node isolation run)."
+        ),
+    )
+
+    execute_once: bool = Field(
+        default=False,
+        description=(
+            "If True, skip this node if it has already run successfully in this run_id. "
+            "No-op in Execute Step context (single-node isolation run)."
+        ),
+    )
+
+    notes: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="Free-text notes about this node. Shown in Inspector and optionally on canvas.",
+    )
+
+    display_note_in_flow: bool = Field(
+        default=False,
+        description="If True, show a notes badge on this node's canvas card.",
+    )
 
     @field_validator("id")
     @classmethod

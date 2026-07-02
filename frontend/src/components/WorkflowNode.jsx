@@ -9,7 +9,7 @@
  */
 
 import { Handle, Position } from '@xyflow/react';
-import { Zap, Brain, Server, GitBranch, Clock, RefreshCw, Layers, AlertCircle } from 'lucide-react';
+import { Zap, Brain, Server, GitBranch, Clock, RefreshCw, Layers, AlertCircle, StickyNote } from 'lucide-react';
 
 const TYPE_ICONS = {
   trigger:     Zap,
@@ -81,6 +81,14 @@ export default function WorkflowNode({ data, selected }) {
         {data.is_disabled && (
           <span className="ml-2 text-[9px] font-mono text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded px-2 py-0.5">
             disabled
+          </span>
+        )}
+        {data.display_note_in_flow && data.notes && (
+          <span
+            title={data.notes}
+            className="ml-2 inline-flex items-center gap-0.5 text-[9px] font-mono text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5"
+          >
+            <StickyNote size={8} /> note
           </span>
         )}
       </div>
