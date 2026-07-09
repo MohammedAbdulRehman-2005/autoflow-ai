@@ -13,8 +13,8 @@ export default function LoginPage() {
   const location = useLocation();
 
   // Pre-fill with demo credentials
-  const [email, setEmail]               = useState(DEMO_EMAIL);
-  const [password, setPassword]         = useState(DEMO_PASSWORD);
+  const [email, setEmail]               = useState('');
+  const [password, setPassword]         = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe]     = useState(true);
   const [localError, setLocalError]     = useState(null);
@@ -94,25 +94,7 @@ export default function LoginPage() {
           transition={{ duration: 0.6, delay: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
           className="border border-white/10 rounded-3xl bg-white/5 p-8 shadow-2xl backdrop-blur-lg"
         >
-          {/* ── Demo credentials banner ─────────────────────────────────── */}
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-5 flex items-start gap-2.5 rounded-2xl border border-cyan-500/20 bg-cyan-500/8 p-3.5"
-          >
-            <Sparkles className="h-4 w-4 text-cyan-400 mt-0.5 shrink-0 animate-pulse" />
-            <div className="flex-1 text-left">
-              <p className="text-xs font-bold text-cyan-300">Try the Live Demo</p>
-              <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                Pre-filled with demo credentials. Just click&nbsp;
-                <span className="font-bold text-white">Continue</span> to explore the dashboard.
-              </p>
-              <div className="mt-2 flex gap-2 text-[10px] font-mono">
-                <span className="rounded-lg bg-white/8 border border-white/10 px-2 py-1 text-slate-300">{DEMO_EMAIL}</span>
-                <span className="rounded-lg bg-white/8 border border-white/10 px-2 py-1 text-slate-300">{DEMO_PASSWORD}</span>
-              </div>
-            </div>
-          </motion.div>
+         
 
           <form className="space-y-5" onSubmit={handleSubmit}>
 
@@ -154,13 +136,7 @@ export default function LoginPage() {
                 <label className="text-[10px] font-bold text-slate-350 tracking-wider font-display" htmlFor="password">
                   PASSWORD
                 </label>
-                <button
-                  type="button"
-                  onClick={fillDemo}
-                  className="text-2xs font-bold text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
-                >
-                  Use Demo →
-                </button>
+              
               </div>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
@@ -216,11 +192,7 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Demo mode info note */}
-          <div className="mt-4 flex items-center gap-1.5 justify-center text-[10px] text-slate-500">
-            <Info className="h-3 w-3 shrink-0" />
-            <span>Demo mode works offline — no backend required to explore the UI</span>
-          </div>
+         
 
           {/* Create account link */}
           <div className="mt-4 text-center">
