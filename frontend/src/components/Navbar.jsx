@@ -144,16 +144,7 @@ export default function Navbar({ onSearch, onOpenSettings }) {
                     <UserIcon className="h-4 w-4 text-slate-400" />
                     <span>My Account</span>
                   </button>
-                  <button
-                    onClick={() => {
-                      setShowProfileMenu(false);
-                      onOpenSettings();
-                    }}
-                    className="w-full flex items-center space-x-2 rounded-lg px-3 py-2 text-xs text-slate-300 hover:text-white hover:bg-white/5 transition-colors text-left"
-                  >
-                    <Settings className="h-4 w-4 text-slate-400" />
-                    <span>Workspace Settings</span>
-                  </button>
+             
                 </div>
                 <div className="border-t border-white/10 pt-1 mt-1">
                   <button
