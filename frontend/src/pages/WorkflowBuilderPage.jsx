@@ -25,11 +25,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitBranch, Play, Save, Download, Upload, AlertCircle, Brain, Zap,
   Terminal, RotateCw, Sparkles, RefreshCw, CheckCircle2, Send,
-  User, Bot, ChevronRight, Trash2, X,Mic,Square
+  User, Bot, ChevronRight, Trash2, X, Mic, Square, Plus
 } from 'lucide-react';
 
 import WorkflowNode from '../components/WorkflowNode';
 import NodeInspector from '../components/NodeInspector';
+import AddStepPanel from '../components/AddStepPanel';
 import { dslToFlow } from '../utils/flowLayout';
 import { workflowApi } from '../services/workflowApi';
 import { mutationService } from '../services/mutationService';
@@ -215,6 +216,12 @@ const stopRecording = () => {
   // never persisted, cleared implicitly when modal closes (not on page reload).
   const [inspectorSessionCache, setInspectorSessionCache] = useState({});
 
+  // ── Add Step Panel state (Sprint 3) ──────────────────────────────────────
+  // showAddStep: controls panel visibility
+  // addStepTargetNodeId: set when a node's + handle is clicked (insert-after mode)
+  const [showAddStep, setShowAddStep]           = useState(false);
+  const [addStepTargetNodeId, setAddStepTargetNodeId] = useState(null);
+
   const addLog = (msg) => setTerminalLogs(prev => [...prev, `${new Date().toLocaleTimeString()} › ${msg}`]);
 
   // ── Node Inspector callbacks (Sprint 2) ──────────────────────────────────
@@ -226,23 +233,42 @@ const stopRecording = () => {
   }, [plannedDsl]);
 
   const handleInspectorParamChange = useCallback((nodeId, key, value) => {
-    // Patch the DSL node's params through mutationService
-    const patch = { params: { [key]: value } };
-    const updated = mutationService.applyPatch({ nodeId, patch, actor: 'user', reason: 'inspector_param_edit' });
+    // Sprint 3 BUG FIX: applyPatch(currentDsl, patch, actor, reason)
+    // Previous code incorrectly passed { nodeId, patch, actor, reason } as the first
+    // arg (which became currentDsl). Fixed to pass plannedDsl as first arg.
+    if (!plannedDsl) return;
+    const updatedNodes = plannedDsl.nodes.map(n =>
+      n.id === nodeId ? { ...n, params: { ...(n.params ?? {}), [key]: value } } : n
+    );
+    const updated = mutationService.applyPatch(
+      plannedDsl,
+      { nodes: updatedNodes },
+      'user',
+      'inspector_param_edit',
+    );
     if (updated) applyDsl(updated);
     // Keep selectedNode in sync so Inspector re-renders with new value
     setSelectedNode(prev => prev?.id === nodeId
-      ? { ...prev, params: { ...prev.params, [key]: value } }
+      ? { ...prev, params: { ...(prev.params ?? {}), [key]: value } }
       : prev
     );
-  }, [applyDsl]);
+  }, [plannedDsl, applyDsl]);
 
   const handleInspectorSettingChange = useCallback((nodeId, key, value) => {
-    const patch = { [key]: value };
-    const updated = mutationService.applyPatch({ nodeId, patch, actor: 'user', reason: 'inspector_setting_edit' });
+    // Sprint 3 BUG FIX: same corrected applyPatch call signature
+    if (!plannedDsl) return;
+    const updatedNodes = plannedDsl.nodes.map(n =>
+      n.id === nodeId ? { ...n, [key]: value } : n
+    );
+    const updated = mutationService.applyPatch(
+      plannedDsl,
+      { nodes: updatedNodes },
+      'user',
+      'inspector_setting_edit',
+    );
     if (updated) applyDsl(updated);
     setSelectedNode(prev => prev?.id === nodeId ? { ...prev, [key]: value } : prev);
-  }, [applyDsl]);
+  }, [plannedDsl, applyDsl]);
 
   const handleInspectorCacheUpdate = useCallback((nodeId, result) => {
     setInspectorSessionCache(prev => ({ ...prev, [nodeId]: result }));
@@ -250,6 +276,30 @@ const stopRecording = () => {
 
   const handleInspectorClose = useCallback(() => {
     setSelectedNode(null);
+  }, []);
+
+  // ── Add Step Panel handlers (Sprint 3) ───────────────────────────────────
+  const handleOpenAddStep = useCallback(() => {
+    setAddStepTargetNodeId(null);
+    setShowAddStep(true);
+  }, []);
+
+  const handleCloseAddStep = useCallback(() => {
+    setShowAddStep(false);
+    setAddStepTargetNodeId(null);
+  }, []);
+
+  // Listen for the custom DOM event fired by WorkflowNode's + handle
+  useEffect(() => {
+    const handleAddStepAfterNode = (e) => {
+      const nodeId = e.detail?.nodeId;
+      if (nodeId) {
+        setAddStepTargetNodeId(nodeId);
+        setShowAddStep(true);
+      }
+    };
+    window.addEventListener('workflow:add-step-after', handleAddStepAfterNode);
+    return () => window.removeEventListener('workflow:add-step-after', handleAddStepAfterNode);
   }, []);
 
   // Workflow ID from localStorage (used by Inspector for Execute Step)
@@ -628,6 +678,18 @@ finally{
           <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImport} />
         </button>
         <div className="h-px w-6 bg-white/10 my-1" />
+        {/* + Add Step — Sprint 3 */}
+        <button
+          id="toolbar-add-step"
+          onClick={handleOpenAddStep}
+          disabled={!plannedDsl}
+          title="Add Step"
+          aria-label="Add a new step to the workflow"
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-violet-500/15 border border-violet-500/20 text-violet-400 hover:bg-violet-500 hover:text-white transition-all cursor-pointer disabled:opacity-30"
+        >
+          <Plus size={16} />
+        </button>
+        <div className="h-px w-6 bg-white/10 my-1" />
         <button
           onClick={() => setShowTerminal(v => !v)}
           title="Toggle Terminal"
@@ -640,8 +702,9 @@ finally{
         </button>
       </div>
 
-      {/* ── Canvas ────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* ── Canvas ──────────────────────────────────────────────────────── */}
+      {/* Canvas + AddStepPanel share this column; panel overlays canvas from the right */}
+      <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Toolbar banner */}
         <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/8 bg-slate-950/40 backdrop-blur-sm flex-shrink-0">
           <GitBranch size={16} className="text-blue-400" />
@@ -915,6 +978,15 @@ finally{
           onClose={handleInspectorClose}
         />
       )}
+      {/* Add Step Panel — Sprint 3 (RFC-001 §1, §4) */}
+      <AddStepPanel
+        open={showAddStep}
+        onClose={handleCloseAddStep}
+        currentDsl={plannedDsl}
+        applyDsl={applyDsl}
+        insertAfterNodeId={addStepTargetNodeId}
+        rfNodes={rfNodes}
+      />
     </>
   );
 }

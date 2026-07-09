@@ -10,10 +10,14 @@
  *   4. Emits WorkflowPatched on the event bus
  *   5. Returns the new DSL (caller calls applyDsl() with it)
  *
- * Scope changes from plan approval:
- *   - No undo/redo in Sprint 1 (MutationRecord stack kept for Sprint 2)
- *   - Backend WorkflowMutationService deferred — this is frontend-only
- *   - History is in-memory only; no sessionStorage, no DB writes
+ * Sprint 3 additions:
+ *   - addStep()      — the ONLY method for applying Add Step deltas
+ *   - computeDiff()  — static utility for computing before/after diffs
+ *
+ * CRITICAL: applyPatch(currentDsl, patch, actor, reason)
+ *   First arg is ALWAYS the current DSL object (or null for full replace).
+ *   Do NOT pass {nodeId, patch, actor, reason} as the first arg — that is
+ *   a call-signature bug fixed in Sprint 3 (see WorkflowBuilderPage.jsx).
  *
  * @module mutationService
  */
@@ -29,6 +33,14 @@ import { eventBus } from './eventBus';
  * @property {string} timestamp    - ISO datetime string
  */
 
+/**
+ * @typedef {Object} DiffResult
+ * @property {string[]} addedNodeIds    - IDs of nodes present in after but not before
+ * @property {string[]} removedNodeIds  - IDs of nodes present in before but not after
+ * @property {string[]} addedEdgeKeys   - "src→tgt" strings for new edges
+ * @property {string[]} removedEdgeKeys - "src→tgt" strings for removed edges
+ */
+
 class WorkflowMutationService {
   constructor() {
     /** @type {MutationRecord[]} */
@@ -40,14 +52,18 @@ class WorkflowMutationService {
   /**
    * Apply a patch to the current DSL.
    *
-   * For AI-generated workflows the patch is typically the full new DSL.
-   * For canvas drag events the patch contains position updates only.
+   * SIGNATURE: applyPatch(currentDsl, patch, actor, reason)
+   *   - currentDsl : The current WorkflowDSL state object.
+   *                  Pass null ONLY for full DSL replacement (e.g. AI planner result).
+   *   - patch      : Partial or full DSL to merge in (patch fields win).
+   *   - actor      : 'ai' | 'user'
+   *   - reason     : Human-readable description
    *
-   * @param {Object} currentDsl  - The current WorkflowDSL state
-   * @param {Object} patch       - Partial or full DSL to merge in
-   * @param {string} actor       - 'ai' | 'user'
-   * @param {string} reason      - Human-readable description, e.g. 'AI planner'
-   * @returns {Object}           - The new DSL after applying the patch
+   * @param {Object|null} currentDsl
+   * @param {Object} patch
+   * @param {string} actor
+   * @param {string} reason
+   * @returns {Object} The new DSL after applying the patch
    */
   applyPatch(currentDsl, patch, actor = 'user', reason = '') {
     if (!patch) return currentDsl;
@@ -110,6 +126,60 @@ class WorkflowMutationService {
   }
 
   /**
+   * Insert one or more new nodes into the DSL, wiring edges automatically.
+   *
+   * This is THE ONLY method for applying Add Step deltas from the backend.
+   * The backend returns a delta (new_nodes, new_edges, removed_edges);
+   * this method is the sole component that merges it into the canonical DSL.
+   *
+   * @param {Object} currentDsl
+   * @param {Object} options
+   * @param {Object[]} options.newNodes      — new WorkflowNodeDSL objects
+   * @param {Object[]} options.newEdges      — new WorkflowEdgeDSL objects {source_id, target_id, label?}
+   * @param {Array<{source_id:string, target_id:string}>} [options.removedEdges]
+   *   — edges to remove when splicing new node(s) into the middle of the flow
+   * @param {string} [options.actor]
+   * @param {string} [options.reason]
+   * @returns {Object} new DSL
+   */
+  addStep(currentDsl, {
+    newNodes = [],
+    newEdges = [],
+    removedEdges = [],
+    actor = 'ai',
+    reason = 'Add Step',
+  } = {}) {
+    if (!currentDsl) {
+      throw new Error('addStep() requires a non-null currentDsl.');
+    }
+    if (!newNodes.length) {
+      throw new Error('addStep() requires at least one new node.');
+    }
+
+    const existingNodes = currentDsl.nodes ?? [];
+    const existingEdges = currentDsl.edges ?? [];
+
+    // Remove specified edges (splice insertion)
+    const filteredEdges = existingEdges.filter(
+      e => !removedEdges.some(
+        r => r.source_id === e.source_id && r.target_id === e.target_id
+      )
+    );
+
+    const patch = {
+      nodes: [...existingNodes, ...newNodes],
+      edges: [...filteredEdges, ...newEdges],
+    };
+
+    return this.applyPatch(
+      currentDsl,
+      patch,
+      actor,
+      reason,
+    );
+  }
+
+  /**
    * Emit WorkflowSaved when the workflow is persisted to the backend.
    * Replaces window.dispatchEvent(new Event('workflow-saved')).
    *
@@ -139,6 +209,35 @@ class WorkflowMutationService {
     return { ...base, ...patch };
   }
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATIC DIFF UTILITY  (exported separately — no state, no side effects)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Compute a human-readable diff between two DSLs.
+ *
+ * @param {Object|null} beforeDsl
+ * @param {Object|null} afterDsl
+ * @returns {DiffResult}
+ */
+export function computeDiff(beforeDsl, afterDsl) {
+  const beforeNodes = new Set((beforeDsl?.nodes ?? []).map(n => n.id));
+  const afterNodes  = new Set((afterDsl?.nodes  ?? []).map(n => n.id));
+
+  const edgeKey = (e) => `${e.source_id}→${e.target_id}`;
+  const beforeEdgeKeys = new Set((beforeDsl?.edges ?? []).map(edgeKey));
+  const afterEdgeKeys  = new Set((afterDsl?.edges  ?? []).map(edgeKey));
+
+  return {
+    addedNodeIds:    [...afterNodes].filter(id => !beforeNodes.has(id)),
+    removedNodeIds:  [...beforeNodes].filter(id => !afterNodes.has(id)),
+    addedEdgeKeys:   [...afterEdgeKeys].filter(k  => !beforeEdgeKeys.has(k)),
+    removedEdgeKeys: [...beforeEdgeKeys].filter(k  => !afterEdgeKeys.has(k)),
+  };
+}
+
 
 // Module-level singleton — import this everywhere.
 export const mutationService = new WorkflowMutationService();

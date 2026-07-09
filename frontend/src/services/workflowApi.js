@@ -9,6 +9,10 @@ import { api } from './apiClient';
 // Populated on first call to getNodeTypes(), reused for the browser session.
 let _nodeTypesCache = null;
 
+// Session-level cache for capability patterns — fetched once from the backend.
+// The Capability Registry is the backend source of truth; this is display-only.
+let _capabilitiesCache = null;
+
 export const workflowApi = {
   // ─── Workflow CRUD ────────────────────────────────────────────────────────
 
@@ -194,5 +198,53 @@ export const workflowApi = {
       params_override: paramsOverride,
       trigger_payload: triggerPayload,
     });
+  },
+
+  // ─── Sprint 3: Add Step (Editor AI) ──────────────────────────────────────
+
+  /**
+   * Add one or more nodes to an existing workflow using the Editor AI.
+   * POST /api/v1/ai/add-step
+   *
+   * The backend returns ONLY a delta (new_nodes, new_edges, removed_edges).
+   * The caller MUST pass this delta to mutationService.addStep() — never
+   * apply it to the DSL directly.
+   *
+   * @param {string|null} workflowId   — Optional, used for audit logging only.
+   * @param {object}      currentDsl   — The complete current WorkflowDSL JSON.
+   * @param {string}      userIntent   — Free-text description of the desired step.
+   * @param {string|null} insertAfterNodeId — ID of the node to insert after; null = append.
+   * @returns {Promise<AddStepResponse>}
+   */
+  addStep: async (workflowId, { currentDsl, userIntent, insertAfterNodeId = null } = {}) => {
+    return api.post('/api/v1/ai/add-step', {
+      workflow_id: workflowId ?? null,
+      current_dsl: currentDsl,
+      user_intent: userIntent,
+      insert_after_node_id: insertAfterNodeId,
+    });
+  },
+
+  /**
+   * List all registered Capability Registry patterns.
+   * GET /api/v1/ai/capabilities
+   *
+   * Results are cached for the browser session — near-static registry data.
+   * The Capability Registry is the backend source of truth; this is display-only.
+   *
+   * @returns {Promise<CapabilitiesListResponse>}
+   */
+  getCapabilities: async () => {
+    if (_capabilitiesCache) return _capabilitiesCache;
+    const result = await api.get('/api/v1/ai/capabilities');
+    _capabilitiesCache = result;
+    return result;
+  },
+
+  /**
+   * Clear the capabilities session cache (e.g. after registry hot-reload in dev).
+   */
+  clearCapabilitiesCache: () => {
+    _capabilitiesCache = null;
   },
 };

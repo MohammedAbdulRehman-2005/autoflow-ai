@@ -1,0 +1,52 @@
+/* ─── WorkflowNode ──────────────────────────────────────────────────────────
+ * Sprint 3: + add-step handle that appears on hover below each node.
+ * Uses .workflow-node group hover to show/hide the button.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* Group container so hover state propagates */
+.workflow-node {
+  /* Establish hover group */
+}
+
+/* + handle — hidden by default, visible on parent hover */
+.workflow-node__add-handle {
+  position: absolute;
+  left: 50%;
+  bottom: -28px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(99, 102, 241, 0.5);
+  background: rgba(9, 14, 28, 0.92);
+  color: #6366f1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out, background 150ms ease-out, transform 150ms ease-out;
+  z-index: 10;
+}
+
+/* Show on parent node hover */
+.workflow-node:hover .workflow-node__add-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Hover state on the button itself */
+.workflow-node__add-handle:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: #6366f1;
+  transform: translateX(-50%) scale(1.15);
+}
+
+/* Focus visible */
+.workflow-node__add-handle:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
