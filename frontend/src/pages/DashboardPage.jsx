@@ -38,9 +38,7 @@ export default function DashboardPage() {
 
   // AI prompt
   const [promptValue, setPromptValue]   = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [genResult, setGenResult]       = useState(null);
-  const [genError, setGenError]         = useState(null);
+ 
 
   // Voice
   const [isListening, setIsListening]         = useState(false);
@@ -123,32 +121,12 @@ export default function DashboardPage() {
     }
   };
 
-  // ── AI Prompt → plan workflow ─────────────────────────────────────────────
-  const handleGenerateWorkflow = async () => {
-    if (!promptValue.trim()) return;
-    setIsGenerating(true);
-    setGenResult(null);
-    setGenError(null);
-    try {
-      const prompt = promptValue.trim();
-      // Derive a short workflow name from the first sentence of the prompt
-      const autoName = prompt.length > 50 ? prompt.slice(0, 47) + '...' : prompt;
-      const intent = {
-        goal: prompt,
-        trigger: 'Auto-inferred from prompt',
-        integrations: [],
-      };
-      const result = await workflowApi.planWorkflow(autoName, intent);
-      setGenResult(result);
-      setPromptValue('');
-      // Refresh list to show the newly created workflow
-      setTimeout(() => loadData(), 800);
-    } catch (err) {
-      setGenError(err.message || 'AI planning failed. Try again.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+// ── AI Prompt → hand off to Workflow Builder chat ──────────────────────────
+const handleGenerateWorkflow = () => {
+  if (!promptValue.trim()) return;
+  const prompt = promptValue.trim();
+  navigate('/workflow-builder', { state: { initialPrompt: prompt } });
+};
 
   // ── Voice dictation ───────────────────────────────────────────────────────
   const toggleVoice = () => {
@@ -267,33 +245,13 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {genError && (
-              <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 flex items-center gap-2">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                {genError}
-              </div>
-            )}
-
-            {genResult && (
-              <motion.div
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2"
-              >
-                ✅ Workflow <strong>"{genResult.name || genResult.workflow_name || 'generated'}"</strong> created and saved!
-              </motion.div>
-            )}
-
             <button
               onClick={handleGenerateWorkflow}
-              disabled={isGenerating || !promptValue.trim()}
+              disabled={!promptValue.trim()}
               className="py-2.5 px-5 rounded-xl font-bold text-xs text-center bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white cursor-pointer active:scale-98 transition-all shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
-              {isGenerating ? (
-                <><RotateCw className="h-3.5 w-3.5 animate-spin" /><span>Planning with AI...</span></>
-              ) : (
-                <><Sparkles className="h-3.5 w-3.5 text-cyan-200" /><span>Generate Workflow</span></>
-              )}
+             <Sparkles className="h-3.5 w-3.5 text-cyan-200" /><span>Generate Workflow</span></>
+
             </button>
             <p className="text-[10px] text-slate-500 text-center">Tip: Ctrl+Enter to submit quickly</p>
           </div>
