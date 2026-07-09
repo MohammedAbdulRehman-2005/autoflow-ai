@@ -25,7 +25,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitBranch, Play, Save, Download, Upload, AlertCircle, Brain, Zap,
   Terminal, RotateCw, Sparkles, RefreshCw, CheckCircle2, Send,
-  User, Bot, ChevronRight, Trash2, X,Mic,Square
+  User, Bot, ChevronRight,  ChevronDown ,Trash2, X,Mic,Square
 } from 'lucide-react';
 
 import WorkflowNode from '../components/WorkflowNode';
@@ -118,6 +118,8 @@ export default function WorkflowBuilderPage() {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
 
+  const [showTemplates,setShowTemplates] = useState(false);
+  
   const [recording,setRecording]=useState(false);
   const mediaRecorderRef =useRef(null);
   const chunksRef= useRef([]);
@@ -715,21 +717,31 @@ finally{
           <div ref={chatEndRef} />
         </div>
 
-        {/* Quick Templates */}
-        <div className="px-4 pt-2 pb-2 border-t border-white/8 flex-shrink-0">
-          <p className="text-[9px] font-bold text-slate-600 tracking-widest uppercase mb-2">Quick Templates</p>
-          <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
-            {templates.map((t, i) => (
-              <button
-                key={i}
-                onClick={() => setChatInput(t)}
-                className="text-left text-[10px] text-slate-400 hover:text-white bg-white/3 hover:bg-white/8 border border-white/8 hover:border-white/15 rounded-xl px-3 py-1.5 transition-all cursor-pointer truncate font-sans"
-              >
-                👉 {t}
-              </button>
-            ))}
-          </div>
-        </div>
+     {/* Quick Templates */}
+<div className="px-4 pt-2 pb-2 border-t border-white/8 flex-shrink-0">
+  <button
+    onClick={() => setShowTemplates(!showTemplates)}
+    className="w-full flex items-center justify-between text-[9px] font-bold text-slate-600 tracking-widest uppercase mb-2 cursor-pointer hover:text-slate-400 transition-colors"
+  >
+    <span>Quick Templates</span>
+    <ChevronDown
+      className={`h-3 w-3 transition-transform duration-200 ${showTemplates ? 'rotate-180' : ''}`}
+    />
+  </button>
+  {showTemplates && (
+    <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
+      {templates.map((t, i) => (
+        <button
+          key={i}
+          onClick={() => setChatInput(t)}
+          className="text-left text-[10px] text-slate-400 hover:text-white bg-white/3 hover:bg-white/8 bo..."
+        >
+          👉{t}
+        </button>
+      ))}
+    </div>
+  )}
+</div>
 
         {followupQuestions.length > 0 && (
        <div className="mt-4">
