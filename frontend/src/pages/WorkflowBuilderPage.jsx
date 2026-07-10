@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback, useRef, useMemo,useEffect } from 'react';
+import {useLocation } from 'react-router-dom' ;
 import {
   ReactFlow,
   Background,
@@ -111,6 +112,7 @@ function ChatBubble({ msg }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function WorkflowBuilderPage() {
+  const location = useLocation();
   // ── Canonical DSL state ───────────────────────────────────────────────────
   const [plannedDsl, setPlannedDsl]     = useState(null);
 
@@ -258,6 +260,17 @@ if(workflowId) return ;
     }
   }
 }, [applyDsl]);
+
+// ── Auto-send prompt handed off from Dashboard ───────────────────────────
+  useEffect(() => {
+    const incomingPrompt = location.state?.initialPrompt;
+    if (incomingPrompt) {
+      sendMessage(incomingPrompt);
+      // Clear the navigation state so refreshing this page won't re-trigger it
+      window.history.replaceState({}, document.title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   // ── Handle node drag stop → save position ────────────────────────────────
   const onNodeDragStop = useCallback((_, node) => {
@@ -363,8 +376,8 @@ finally{
   }, [workflowName, plannedDsl, applyDsl]);
 
   // ── Send message to AI ────────────────────────────────────────────────────
-  const sendMessage = useCallback(async () => {
-    const userText = chatInput.trim();
+  const sendMessage = useCallback(async (overrideText) => {
+    const userText = (overrideText ?? chatInput).trim();
     if (!userText || isThinking) return;
 
     setChatInput('');
