@@ -31,11 +31,11 @@ export default function MarketplacePage() {
   const categories = [
     'All', 
     'Email Automation', 
-    'Telegram Notifications', 
+    'Sales & CRM', 
     'Meeting Reminders', 
     'Calendar Scheduling', 
-    'Document Processing', 
-    'Student Productivity Automation',
+    'Payments & Billing', 
+    'Document & Knowledge Base',
     'AI Task Automation'
   ];
 
