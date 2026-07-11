@@ -250,8 +250,7 @@ const handleGenerateWorkflow = () => {
               disabled={!promptValue.trim()}
               className="py-2.5 px-5 rounded-xl font-bold text-xs text-center bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white cursor-pointer active:scale-98 transition-all shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
-             <Sparkles className="h-3.5 w-3.5 text-cyan-200" /><span>Generate Workflow</span></>
-
+             <Sparkles className="h-3.5 w-3.5 text-cyan-200" /><span>Generate Workflow</span>
             </button>
             <p className="text-[10px] text-slate-500 text-center">Tip: Ctrl+Enter to submit quickly</p>
           </div>
