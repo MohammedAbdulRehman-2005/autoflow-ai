@@ -747,7 +747,7 @@ finally{
         <button
           key={i}
           onClick={() => setChatInput(t)}
-          className="text-left text-[10px] text-slate-400 hover:text-white bg-white/3 hover:bg-white/8 bo..."
+          className="text-left text-[10px] text-slate-400 hover:text-white bg-white/3 hover:bg-white/8 border border-white/10 rounded-lg px-3 py-2 transition-colors"
         >
           👉{t}
         </button>
