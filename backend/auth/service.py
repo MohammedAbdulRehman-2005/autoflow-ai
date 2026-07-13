@@ -4,12 +4,15 @@ All business logic for authentication lives here.
 The router is kept thin — it only handles HTTP concerns.
 """
 
+import logging
 import uuid
 from datetime import timedelta
 
 import redis.asyncio as aioredis
 from jose import JWTError
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from backend.auth.schemas import SignupRequest, LoginRequest, TokenResponse, AuthResponse, UserProfile
 from backend.auth.utils import (
@@ -39,13 +42,19 @@ def _make_redis_key(jti: str) -> str:
 
 async def _store_refresh_token(redis: aioredis.Redis, jti: str, user_id: uuid.UUID) -> None:
     """Persist the refresh token jti → user_id mapping in Redis with TTL."""
-    ttl_seconds = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
-    await redis.setex(_make_redis_key(jti), ttl_seconds, str(user_id))
+    try:
+        ttl_seconds = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
+        await redis.setex(_make_redis_key(jti), ttl_seconds, str(user_id))
+    except Exception as e:
+        logger.warning(f"Redis unavailable, could not store refresh token jti {jti}: {e}")
 
 
 async def _revoke_refresh_token(redis: aioredis.Redis, jti: str) -> None:
     """Delete a refresh token from Redis, effectively invalidating it."""
-    await redis.delete(_make_redis_key(jti))
+    try:
+        await redis.delete(_make_redis_key(jti))
+    except Exception as e:
+        logger.warning(f"Redis unavailable during revoke jti {jti}: {e}")
 
 
 async def _validate_refresh_token_in_redis(redis: aioredis.Redis, jti: str) -> str | None:
@@ -53,7 +62,11 @@ async def _validate_refresh_token_in_redis(redis: aioredis.Redis, jti: str) -> s
     Return the stored user_id string if the jti exists in Redis,
     or None if the token has been revoked or never existed.
     """
-    return await redis.get(_make_redis_key(jti))
+    try:
+        return await redis.get(_make_redis_key(jti))
+    except Exception as e:
+        logger.warning(f"Redis unavailable during refresh validation jti {jti}: {e}")
+        return "FALLBACK"
 
 
 def _build_token_response(user_id: uuid.UUID) -> tuple[str, str, TokenResponse]:
@@ -173,7 +186,9 @@ async def refresh_access_token(
 
     # 3. Validate against Redis (checks it hasn't been revoked)
     stored_user_id = await _validate_refresh_token_in_redis(redis, jti)
-    if stored_user_id is None:
+    if stored_user_id == "FALLBACK":
+        stored_user_id = user_id_str
+    elif stored_user_id is None:
         raise ValueError("Refresh token has been revoked.")
 
     if stored_user_id != user_id_str:

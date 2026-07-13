@@ -1,9 +1,11 @@
 """
 AutoFlow AI X — Workflow Execution Router
 ==========================================
-POST /workflows/{workflow_id}/run  → Trigger a manual run
-GET  /workflows/{workflow_id}/runs → List all run history
-GET  /workflows/{workflow_id}/runs/{run_id} → Get run detail with step logs
+POST /workflows/{workflow_id}/run                          → Trigger a manual run
+GET  /workflows/{workflow_id}/runs                         → List all run history
+GET  /workflows/{workflow_id}/runs/{run_id}                → Get run detail with step logs
+GET  /workflows/node-types                                 → Get NodeRegistry as JSON (Sprint 2)
+POST /workflows/{workflow_id}/nodes/{node_id}/execute      → Execute single node in isolation (Sprint 2)
 """
 
 import asyncio
@@ -26,6 +28,10 @@ from backend.database.models import User
 from backend.workflow.dsl.schema import WorkflowDSL
 from backend.workflow.engine.runner import WorkflowRunner
 from backend.workflow.engine.schemas import (
+    NodeExecuteRequest,
+    NodeExecuteResponse,
+    NodeMetadataDTO,
+    NodeTypesResponse,
     RunDetail,
     RunListResponse,
     RunSummary,
@@ -274,3 +280,215 @@ def get_run(
     run_detail.step_logs = [StepLogSummary.model_validate(s) for s in step_logs]
 
     return run_detail
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPRINT 2: GET /workflows/node-types
+# ─────────────────────────────────────────────────────────────────────────────
+# IMPORTANT: /node-types must be defined BEFORE /{workflow_id}/... routes
+# to avoid FastAPI treating 'node-types' as a workflow_id path parameter.
+# It is placed at the END of this file but declared on the same router prefix
+# so FastAPI evaluates it after specific paths but before the catch-all.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/node-types",
+    response_model=NodeTypesResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get all registered node types (NodeRegistry) as safe DTOs",
+    description=(
+        "Returns NodeMetadataDTO objects — never serializes NodePlugin directly "
+        "(which holds non-serializable callables). Frontend caches this for the session."
+    ),
+)
+def get_node_types(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns all NodeRegistry plugins as NodeMetadataDTO objects.
+    Safe to send to the client: no executors, no validators, no callable fields.
+    Frontend should cache this for the browser session — it’s near-static registry data.
+    """
+    from backend.workflow.node_registry import NodeRegistry
+
+    plugins = [
+        NodeMetadataDTO(
+            service=p.service,
+            operation=p.operation,
+            node_type=p.node_type,
+            label=p.label,
+            icon=p.icon,
+            parameter_schema=p.parameter_schema,
+            output_schema=p.output_schema,
+            default_params=p.default_params,
+            doc_url=p.doc_url,
+            display_name=p.display_name,
+            category=p.category,
+            tags=p.tags,
+            recommended_after=p.recommended_after,
+            supports_streaming=p.supports_streaming,
+            supports_preview=p.supports_preview,
+            supports_retry=p.supports_retry,
+            supports_batch=p.supports_batch,
+            estimated_latency=p.estimated_latency,
+            required_scopes=p.required_scopes,
+        )
+        for p in NodeRegistry.list_all()
+    ]
+    return NodeTypesResponse(plugins=plugins, total=len(plugins))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPRINT 2: POST /workflows/{workflow_id}/nodes/{node_id}/execute
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Secret key patterns to scrub from Execute Step output (case-insensitive match).
+# Mirrors the guarantee in ExecutionContext.snapshot().
+_SECRET_KEY_PATTERNS = frozenset({
+    "token", "secret", "password", "passwd", "key", "credential", "auth", "apikey", "api_key",
+})
+
+
+def _scrub_secrets(output: dict) -> dict:
+    """
+    Remove any top-level output keys whose name contains a secret-looking substring.
+    Shallow scrub only — nested keys are not inspected (executors must not nest secrets).
+    """
+    return {
+        k: v for k, v in output.items()
+        if not any(pat in k.lower() for pat in _SECRET_KEY_PATTERNS)
+    }
+
+
+def _classify_error(error: str) -> str:
+    """
+    Map a raw error string to an RFC-002 §3 error boundary type.
+    Used so the Inspector can surface appropriate recovery affordances
+    (e.g. a Credential Error gets a reconnect prompt, not a 'Continue' option).
+    """
+    err_lower = error.lower() if error else ""
+    if any(w in err_lower for w in ("credential", "token", "auth", "unauthorized", "403", "401")):
+        return "credential"
+    if any(w in err_lower for w in ("integration", "api", "rate limit", "timeout", "503", "502", "429")):
+        return "integration"
+    if any(w in err_lower for w in ("schema", "compile", "dsl", "invalid workflow")):
+        return "compiler"
+    if any(w in err_lower for w in ("validation", "condition_key", "routing_drift", "placeholder")):
+        return "validation"
+    return "node"
+
+
+@router.post(
+    "/{workflow_id}/nodes/{node_id}/execute",
+    response_model=NodeExecuteResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Execute a single node in isolation (Node Inspector Execute Step)",
+)
+async def execute_node(
+    workflow_id: uuid.UUID,
+    node_id: str,
+    payload: NodeExecuteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Runs a single DSL node through the real execution pipeline in isolation.
+    Returns the real output or real error — no mocked data (RFC-003 §1).
+
+    Uses WorkflowRunner.execute_single_node() (public API — router never
+    reaches into private _execute_node()). Same CredentialResolver →
+    ExecutionContext → Executor chain as a full run (RFC-002 §1).
+
+    No DB run record is written — this is ephemeral and does not appear
+    in run history. The Inspector’s output column caches the result in
+    the browser session only.
+
+    Output is scrubbed of secret-looking keys before returning to the client,
+    matching the WorkflowContext.snapshot() guarantee from Sprint 1.
+    """
+    import time
+
+    workflow = _get_workflow_or_404(workflow_id, current_user.id, db)
+
+    # Load and parse DSL
+    dsl_json = workflow.ai_context_json
+    if not dsl_json:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Workflow has no DSL. Generate it first.",
+        )
+    try:
+        dsl = WorkflowDSL.model_validate(dsl_json)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid workflow DSL: {e}",
+        )
+
+    # Find the node by DSL ID
+    node = next((n for n in dsl.nodes if n.id == node_id), None)
+    if not node:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Node '{node_id}' not found in workflow DSL.",
+        )
+
+    # Build an ephemeral runner — no DB run record
+    ephemeral_run_id = uuid.uuid4()
+    runner = WorkflowRunner(
+        dsl=dsl,
+        run_id=ephemeral_run_id,
+        db=db,
+        trigger_payload=payload.trigger_payload,
+        user_id=current_user.id,
+        workflow_id=workflow_id,
+        triggered_by="inspector_execute_step",
+    )
+
+    started_at = datetime.now(timezone.utc)
+    start_ms = time.monotonic_ns()
+
+    try:
+        result = await runner.execute_single_node(
+            node=node,
+            params_override=payload.params_override,
+        )
+    except Exception as exc:
+        duration_ms = int((time.monotonic_ns() - start_ms) / 1_000_000)
+        error_str = str(exc)
+        logger.error(
+            f"[ExecuteStep] Node '{node_id}' raised exception: {exc}",
+            exc_info=True,
+        )
+        return NodeExecuteResponse(
+            node_id=node_id,
+            success=False,
+            output={},
+            error=error_str,
+            error_type=_classify_error(error_str),
+            duration_ms=duration_ms,
+            executed_at=started_at,
+        )
+
+    duration_ms = int((time.monotonic_ns() - start_ms) / 1_000_000)
+
+    # Scrub secrets from output before returning to client
+    safe_output = _scrub_secrets(result.output or {})
+
+    error_type = _classify_error(result.error) if not result.success and result.error else None
+
+    logger.info(
+        f"[ExecuteStep] Node '{node_id}' "
+        f"{'succeeded' if result.success else 'failed'} "
+        f"in {duration_ms}ms"
+    )
+
+    return NodeExecuteResponse(
+        node_id=node_id,
+        success=result.success,
+        output=safe_output,
+        error=result.error,
+        error_type=error_type,
+        duration_ms=duration_ms,
+        executed_at=started_at,
+    )

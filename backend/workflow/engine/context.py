@@ -66,6 +66,8 @@ class ExecutionContext:
         workflow_variables: dict[str, Any],
         db: Optional["Session"] = None,
         user_id: Optional[uuid.UUID] = None,
+        workflow_id: Optional[uuid.UUID] = None,
+        triggered_by: str = "manual",
     ):
         self.run_id = run_id
         self.db = db
@@ -76,7 +78,23 @@ class ExecutionContext:
         self._loop_item: Optional[Any] = None    # current item in a loop iteration
         self._error: Optional[str] = None        # last error message
 
-    # ── Node output storage ──────────────────────────────────────────────────
+        # ── RFC-001 §5 WorkflowContext fields ─────────────────────────────────
+        # Secrets are populated by CredentialResolver before each node runs.
+        # They are NEVER logged, serialised, or returned to the client.
+        self._secrets: dict[str, Any] = {}
+        # Short-term state across nodes in one run (distinct from node outputs).
+        self._memory: dict[str, Any] = {}
+        # Scratch storage for node-local temp data within a run.
+        self._temporary_storage: dict[str, Any] = {}
+        # Execution metadata surfaced for observability.
+        self.execution_metadata: dict[str, Any] = {
+            "workflow_id": str(workflow_id) if workflow_id else None,
+            "run_id": str(run_id),
+            "triggered_by": triggered_by,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    # ── Node output storage ─────────────────────────────────────────────
 
     def set_node_output(self, node_dsl_id: str, output: dict[str, Any]) -> None:
         """Store the output dict of a completed node."""
@@ -94,6 +112,28 @@ class ExecutionContext:
 
     def set_error(self, message: str) -> None:
         self._error = message
+
+    # ── Secret accessors (RFC-001 §8) ──────────────────────────────────────
+    # Executors MUST use these methods instead of querying the DB directly.
+    # Secrets are never exposed to templates or snapshot().
+
+    def set_secret(self, key: str, value: Any) -> None:
+        """Store a decrypted credential dict for the current run."""
+        self._secrets[key] = value
+
+    def get_secret(self, key: str) -> Optional[Any]:
+        """Retrieve a decrypted credential dict by service name."""
+        return self._secrets.get(key)
+
+    # ── Memory accessors (RFC-001 §5) ──────────────────────────────────────
+
+    def set_memory(self, key: str, value: Any) -> None:
+        """Set a short-term memory value for this run."""
+        self._memory[key] = value
+
+    def get_memory(self, key: str) -> Optional[Any]:
+        """Retrieve a short-term memory value by key."""
+        return self._memory.get(key)
 
     # ── Template resolution ──────────────────────────────────────────────────
 
@@ -191,12 +231,22 @@ class ExecutionContext:
         return self.resolve(params)
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a serializable snapshot of the current context for DB storage."""
+        """Return a serializable snapshot of the current context for DB storage.
+
+        IMPORTANT: _secrets is intentionally excluded — credentials are never
+        logged, stored, or returned to the client (RFC-001 §5).
+        """
         return {
             "trigger_payload": self._trigger_payload,
             "node_outputs": self._node_outputs,
             "workflow_vars": self._workflow_vars,
+            "execution_metadata": self.execution_metadata,
         }
+
+
+# RFC-001 §5 alias — use WorkflowContext in new code; ExecutionContext is kept
+# for backward compatibility with existing imports in runner.py, executors, etc.
+WorkflowContext = ExecutionContext
 
 
 def _eval_expression(expr: str, variables: dict[str, Any]) -> Any:

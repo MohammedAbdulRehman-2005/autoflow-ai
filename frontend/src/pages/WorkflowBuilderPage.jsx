@@ -26,12 +26,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitBranch, Play, Save, Download, Upload, AlertCircle, Brain, Zap,
   Terminal, RotateCw, Sparkles, RefreshCw, CheckCircle2, Send,
-  User, Bot, ChevronRight,  ChevronDown ,Trash2, X,Mic,Square
+  User, Bot, ChevronRight, ChevronDown, Trash2, X, Mic, Square, Plus
 } from 'lucide-react';
 
 import WorkflowNode from '../components/WorkflowNode';
+import NodeInspector from '../components/NodeInspector';
+import AddStepPanel from '../components/AddStepPanel';
 import { dslToFlow } from '../utils/flowLayout';
 import { workflowApi } from '../services/workflowApi';
+import { mutationService } from '../services/mutationService';
+import { eventBus } from '../services/eventBus';
 
 // ── React Flow custom node type map ──────────────────────────────────────────
 const nodeTypes = { workflowNode: WorkflowNode };
@@ -209,7 +213,101 @@ const stopRecording = () => {
   const [validationResult, setValidationResult] = useState(null);
   const [showTerminal, setShowTerminal] = useState(false);
 
+  // ── Node Inspector state (Sprint 2) ──────────────────────────────────────
+  // selectedNode: the DSL node object currently open in the inspector, or null.
+  const [selectedNode, setSelectedNode] = useState(null);
+  // inspectorSessionCache: { [nodeId]: NodeExecuteResponse } — in-memory only,
+  // never persisted, cleared implicitly when modal closes (not on page reload).
+  const [inspectorSessionCache, setInspectorSessionCache] = useState({});
+
+  // ── Add Step Panel state (Sprint 3) ──────────────────────────────────────
+  // showAddStep: controls panel visibility
+  // addStepTargetNodeId: set when a node's + handle is clicked (insert-after mode)
+  const [showAddStep, setShowAddStep]           = useState(false);
+  const [addStepTargetNodeId, setAddStepTargetNodeId] = useState(null);
+
   const addLog = (msg) => setTerminalLogs(prev => [...prev, `${new Date().toLocaleTimeString()} › ${msg}`]);
+
+  // ── Node Inspector callbacks (Sprint 2) ──────────────────────────────────
+  const handleNodeClick = useCallback((_event, rfNode) => {
+    if (!plannedDsl) return;
+    // rfNode.id === DSL node id (set by dslToFlow)
+    const dslNode = plannedDsl.nodes?.find(n => n.id === rfNode.id);
+    if (dslNode) setSelectedNode(dslNode);
+  }, [plannedDsl]);
+
+  const handleInspectorParamChange = useCallback((nodeId, key, value) => {
+    // Sprint 3 BUG FIX: applyPatch(currentDsl, patch, actor, reason)
+    // Previous code incorrectly passed { nodeId, patch, actor, reason } as the first
+    // arg (which became currentDsl). Fixed to pass plannedDsl as first arg.
+    if (!plannedDsl) return;
+    const updatedNodes = plannedDsl.nodes.map(n =>
+      n.id === nodeId ? { ...n, params: { ...(n.params ?? {}), [key]: value } } : n
+    );
+    const updated = mutationService.applyPatch(
+      plannedDsl,
+      { nodes: updatedNodes },
+      'user',
+      'inspector_param_edit',
+    );
+    if (updated) applyDsl(updated);
+    // Keep selectedNode in sync so Inspector re-renders with new value
+    setSelectedNode(prev => prev?.id === nodeId
+      ? { ...prev, params: { ...(prev.params ?? {}), [key]: value } }
+      : prev
+    );
+  }, [plannedDsl, applyDsl]);
+
+  const handleInspectorSettingChange = useCallback((nodeId, key, value) => {
+    // Sprint 3 BUG FIX: same corrected applyPatch call signature
+    if (!plannedDsl) return;
+    const updatedNodes = plannedDsl.nodes.map(n =>
+      n.id === nodeId ? { ...n, [key]: value } : n
+    );
+    const updated = mutationService.applyPatch(
+      plannedDsl,
+      { nodes: updatedNodes },
+      'user',
+      'inspector_setting_edit',
+    );
+    if (updated) applyDsl(updated);
+    setSelectedNode(prev => prev?.id === nodeId ? { ...prev, [key]: value } : prev);
+  }, [plannedDsl, applyDsl]);
+
+  const handleInspectorCacheUpdate = useCallback((nodeId, result) => {
+    setInspectorSessionCache(prev => ({ ...prev, [nodeId]: result }));
+  }, []);
+
+  const handleInspectorClose = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
+
+  // ── Add Step Panel handlers (Sprint 3) ───────────────────────────────────
+  const handleOpenAddStep = useCallback(() => {
+    setAddStepTargetNodeId(null);
+    setShowAddStep(true);
+  }, []);
+
+  const handleCloseAddStep = useCallback(() => {
+    setShowAddStep(false);
+    setAddStepTargetNodeId(null);
+  }, []);
+
+  // Listen for the custom DOM event fired by WorkflowNode's + handle
+  useEffect(() => {
+    const handleAddStepAfterNode = (e) => {
+      const nodeId = e.detail?.nodeId;
+      if (nodeId) {
+        setAddStepTargetNodeId(nodeId);
+        setShowAddStep(true);
+      }
+    };
+    window.addEventListener('workflow:add-step-after', handleAddStepAfterNode);
+    return () => window.removeEventListener('workflow:add-step-after', handleAddStepAfterNode);
+  }, []);
+
+  // Workflow ID from localStorage (used by Inspector for Execute Step)
+  const currentWorkflowId = localStorage.getItem('current_workflow_id');
 
   // ── Apply a new DSL to the canvas ────────────────────────────────────────
   const applyDsl = useCallback((dsl) => {
@@ -229,15 +327,15 @@ useEffect(() => {
 
   workflowApi.get(workflowId)
     .then((wf) => {
-      
+      // Canonical column name is ai_context_json; fall through to legacy names.
       const dsl =
-      wf?.dsl || 
-      wf?.dsl_json ||
-      wf?.ai_context_json ||
-      wf?.plan || 
-      wf?.workflow_dsl || 
-      wf?.definition ;
-      
+        wf?.ai_context_json ||
+        wf?.dsl ||
+        wf?.dsl_json ||
+        wf?.plan ||
+        wf?.workflow_dsl ||
+        wf?.definition;
+
       if (dsl) {
         applyDsl(dsl);
       }
@@ -319,8 +417,13 @@ if(workflowId) return ;
 
 
     const dsl = result.dsl || result;
-    localStorage.removeItem("current_workflow_id")
-    applyDsl(dsl);
+    localStorage.removeItem("current_workflow_id");
+
+    // Route through mutation service instead of calling applyDsl directly.
+    // This bumps version, records history, and emits WorkflowPatched.
+    const newDsl = mutationService.replaceDsl(dsl, 'ai', 'AI planner: ' + fullPrompt.slice(0, 60));
+    applyDsl(newDsl);
+
       try {
   const response = await fetch(
     "https://autoflow-ai-production.up.railway.app/api/v1/ai/parse-intent",
@@ -454,12 +557,25 @@ finally{
 
       addLog('Saving workflow...');
       const desc = plannedDsl.description || '';
-      const created = await workflowApi.create({ name: workflowName, description: desc, dsl: plannedDsl });
-      localStorage.setItem("current_workflow_id",created.id);
+
+      // Use update() for existing workflows, create() for new ones.
+      const existingId = localStorage.getItem("current_workflow_id");
+      let saved;
+      if (existingId) {
+        saved = await workflowApi.update(existingId, { name: workflowName, description: desc, dsl: plannedDsl });
+        addLog(`Updated "${saved.name}" (ID: ${saved.id})`);
+      } else {
+        saved = await workflowApi.create({ name: workflowName, description: desc, dsl: plannedDsl });
+        localStorage.setItem("current_workflow_id", saved.id);
+        addLog(`Saved as "${saved.name}" (ID: ${saved.id})`);
+      }
+
       localStorage.removeItem("draft_workflow");
-      setSaveResult(created);
-      window.dispatchEvent(new Event("workflow-saved"));
-      addLog(`Saved as "${created.name}" (ID: ${created.id})`);
+      setSaveResult(saved);
+
+      // Notify via event bus (replaces window.dispatchEvent hack)
+      mutationService.notifySaved({ workflowId: saved.id, name: saved.name });
+
     } catch (err) {
       addLog(`Save error: ${err.message}`);
     } finally {
@@ -529,7 +645,7 @@ finally{
     "Send WhatsApp reminders 24 hours before any Google Calendar event",
   ];
 
-  return (
+  const mainLayout = (
     <div className="flex h-[calc(100vh-7rem)] gap-0 overflow-hidden -m-6 select-none">
 
       {/* ── Left Toolbar ──────────────────────────────────────────────────── */}
@@ -567,6 +683,18 @@ finally{
           <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImport} />
         </button>
         <div className="h-px w-6 bg-white/10 my-1" />
+        {/* + Add Step — Sprint 3 */}
+        <button
+          id="toolbar-add-step"
+          onClick={handleOpenAddStep}
+          disabled={!plannedDsl}
+          title="Add Step"
+          aria-label="Add a new step to the workflow"
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-violet-500/15 border border-violet-500/20 text-violet-400 hover:bg-violet-500 hover:text-white transition-all cursor-pointer disabled:opacity-30"
+        >
+          <Plus size={16} />
+        </button>
+        <div className="h-px w-6 bg-white/10 my-1" />
         <button
           onClick={() => setShowTerminal(v => !v)}
           title="Toggle Terminal"
@@ -579,8 +707,9 @@ finally{
         </button>
       </div>
 
-      {/* ── Canvas ────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* ── Canvas ──────────────────────────────────────────────────────── */}
+      {/* Canvas + AddStepPanel share this column; panel overlays canvas from the right */}
+      <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Toolbar banner */}
         <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/8 bg-slate-950/40 backdrop-blur-sm flex-shrink-0">
           <GitBranch size={16} className="text-blue-400" />
@@ -622,6 +751,7 @@ finally{
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
             onNodeDragStop={onNodeDragStop}
+            onNodeClick={handleNodeClick}
             fitView
             fitViewOptions={{ padding: 0.3, maxZoom: 1.2 }}
             minZoom={0.2}
@@ -847,5 +977,35 @@ finally{
       </div>
     </div>
   );
-}
 
+  return (
+    <>
+      {mainLayout}
+      {selectedNode && currentWorkflowId && (
+        <NodeInspector
+          key={selectedNode.id}
+          node={selectedNode}
+          workflowId={currentWorkflowId}
+          sessionCache={inspectorSessionCache}
+          onParamChange={handleInspectorParamChange}
+          onSettingChange={handleInspectorSettingChange}
+          onCacheUpdate={handleInspectorCacheUpdate}
+          onClose={handleInspectorClose}
+        />
+      )}
+      {/* Add Step Panel — Sprint 3 (RFC-001 §1, §4) */}
+      <AddStepPanel
+        open={showAddStep}
+        onClose={handleCloseAddStep}
+        currentDsl={plannedDsl}
+        applyDsl={applyDsl}
+        insertAfterNodeId={addStepTargetNodeId}
+        rfNodes={rfNodes}
+      />
+    </>
+  );
+}
+<<<<<<< HEAD
+
+=======
+>>>>>>> dev

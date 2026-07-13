@@ -6,10 +6,13 @@
  *  - Service + operation badge
  *  - Node ID displayed in monospace
  *  - Animated hover glow
+ *  - Sprint 3: "+" add-step handle that appears on hover (below the node)
  */
 
+import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Zap, Brain, Server, GitBranch, Clock, RefreshCw, Layers, AlertCircle } from 'lucide-react';
+import { Plus, Zap, Brain, Server, GitBranch, Clock, RefreshCw, Layers, StickyNote } from 'lucide-react';
+import './WorkflowNode.css';
 
 const TYPE_ICONS = {
   trigger:     Zap,
@@ -21,14 +24,24 @@ const TYPE_ICONS = {
   transformer: Layers,
 };
 
-export default function WorkflowNode({ data, selected }) {
+function WorkflowNode({ data, selected }) {
   const Icon = TYPE_ICONS[data.type] || Server;
   const colors = data.colors || { accent: '#06b6d4', bg: 'from-cyan-500/10 to-cyan-500/5', border: 'border-cyan-500/30' };
+
+  const handleAddAfter = (e) => {
+    e.stopPropagation();
+    // Fire a custom DOM event that WorkflowBuilderPage listens for
+    const event = new CustomEvent('workflow:add-step-after', {
+      detail: { nodeId: data.id },
+      bubbles: true,
+    });
+    e.currentTarget.dispatchEvent(event);
+  };
 
   return (
     <div
       className={`
-        relative w-[300px] rounded-2xl border bg-gradient-to-br ${colors.bg} ${colors.border}
+        workflow-node relative w-[300px] rounded-2xl border bg-gradient-to-br ${colors.bg} ${colors.border}
         backdrop-blur-md shadow-lg transition-all duration-200
         ${selected ? 'ring-2 ring-offset-2 ring-offset-slate-950' : ''}
       `}
@@ -83,15 +96,39 @@ export default function WorkflowNode({ data, selected }) {
             disabled
           </span>
         )}
+        {data.display_note_in_flow && data.notes && (
+          <span
+            title={data.notes}
+            className="ml-2 inline-flex items-center gap-0.5 text-[9px] font-mono text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5"
+          >
+            <StickyNote size={8} />note
+          </span>
+        )}
       </div>
 
-      {/* Bottom handle (except for terminal actions with no on_success) */}
+      {/* Bottom handle */}
       <Handle
         type="source"
         position={Position.Bottom}
         className="!w-3 !h-3 !rounded-full !border-2 !bg-slate-950"
         style={{ borderColor: colors.accent }}
       />
+
+      {/* + Add Step handle (appears on hover, below the source handle) */}
+      <button
+        id={`add-step-after-${data.id}`}
+        className="workflow-node__add-handle nodrag nopan"
+        onClick={handleAddAfter}
+        type="button"
+        aria-label={`Add a step after "${data.label || data.id}"`}
+        title="Add step after this node"
+        tabIndex={0}
+      >
+        <Plus size={11} aria-hidden="true" />
+      </button>
     </div>
   );
 }
+
+
+export default memo(WorkflowNode);

@@ -38,7 +38,6 @@ export default function DashboardPage() {
 
   // AI prompt
   const [promptValue, setPromptValue]   = useState('');
- 
 
   // Voice
   const [isListening, setIsListening]         = useState(false);
@@ -121,6 +120,7 @@ export default function DashboardPage() {
     }
   };
 
+<<<<<<< HEAD
 // ── AI Prompt → hand off to Workflow Builder chat ──────────────────────────
 const handleGenerateWorkflow = () => {
   if (!promptValue.trim()) return;
@@ -128,6 +128,15 @@ const handleGenerateWorkflow = () => {
   navigate('/workflow-builder', { state: { initialPrompt: prompt } });
 };
 
+=======
+  // ── AI Prompt → hand off to workflow builder ─────────────────────────────────────────────
+  const handleGenerateWorkflow = () => {
+    if(! promptValue.trim()) return ;
+    const prompt =promptValue.trim();
+    navigate('/workflow-builder', {state : {initialPrompt : prompt}});
+  };
+    
+>>>>>>> dev
   // ── Voice dictation ───────────────────────────────────────────────────────
   const toggleVoice = () => {
     const SpeechAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -250,7 +259,12 @@ const handleGenerateWorkflow = () => {
               disabled={!promptValue.trim()}
               className="py-2.5 px-5 rounded-xl font-bold text-xs text-center bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white cursor-pointer active:scale-98 transition-all shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
+<<<<<<< HEAD
              <Sparkles className="h-3.5 w-3.5 text-cyan-200" /><span>Generate Workflow</span>
+=======
+             <Sparkles className="h-3.5 w-3.5 text-cyan-200" /><span>Generate Workflow</span></>
+              
+>>>>>>> dev
             </button>
             <p className="text-[10px] text-slate-500 text-center">Tip: Ctrl+Enter to submit quickly</p>
           </div>

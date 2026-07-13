@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import sentry_sdk
 from slowapi import _rate_limit_exceeded_handler
@@ -22,12 +23,13 @@ from backend.workflow.validator.router import router as validator_router
 from backend.scheduler.router import router as scheduler_router
 from backend.scheduler.service import scheduler_service
 from backend.core.config import get_settings
-from backend.core.redis import close_redis
+from backend.core.redis import close_redis, get_redis
 from backend.intent_parser.router import router as intent_router
 from backend.followup_engine.router import router as followup_router
 from backend.gmail.router import router as gmail_router
 from backend.integrations.router import router as integrations_router
 from backend.database.session import SessionLocal
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -109,6 +111,14 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"},
+    )
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CORS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -120,6 +130,7 @@ allowed_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -143,11 +154,30 @@ app.include_router(transcribe_router, prefix="/api/v1")
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/health", tags=["System"])
-def health_check():
+async def health_check():
+    db_status = False
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        db_status = True
+    except Exception as e:
+        logger.warning(f"Health check DB failed: {e}")
+
+    redis_status = False
+    try:
+        redis = await get_redis()
+        await redis.ping()
+        redis_status = True
+    except Exception as e:
+        logger.warning(f"Health check Redis failed: {e}")
+
     return {
         "status": "ok",
         "app": settings.APP_NAME,
         "version": "0.1.0",
+        "db_connected": db_status,
+        "redis_connected": redis_status,
         "scheduler_running": scheduler_service.is_running,
         "has_openai_key": bool(os.getenv("OPENAI_API_KEY")),
         "has_groq_key": bool(os.getenv("GROQ_API_KEY"))

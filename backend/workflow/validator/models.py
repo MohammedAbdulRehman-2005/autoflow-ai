@@ -39,6 +39,14 @@ class ErrorCode(str, Enum):
     SCHEDULE_CONFLICT        = "SCHEDULE_CONFLICT"
     INVALID_SCHEDULE         = "INVALID_SCHEDULE"
 
+    # ── Sprint 1 bug fixes ───────────────────────────────────────────────────
+    # Bug #1: condition expression references an output key that doesn't exist
+    CONDITION_KEY_MISMATCH   = "CONDITION_KEY_MISMATCH"
+    # Bug #2: Slack channel looks like a placeholder value (e.g. 'all-xyz')
+    PLACEHOLDER_CHANNEL      = "PLACEHOLDER_CHANNEL"
+    # Bug #3: node.on_success/on_failure disagrees with the DSL edges array
+    ROUTING_DRIFT            = "ROUTING_DRIFT"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # VALIDATION ERROR / WARNING

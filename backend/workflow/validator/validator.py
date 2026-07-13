@@ -3,12 +3,14 @@ AutoFlow AI X — WorkflowValidator
 =====================================
 The central orchestrator for all pre-save and pre-run validation.
 
-Runs five checks in sequence:
-  1. Schema       — required params, field types, cron format
-  2. Graph        — reachability + cycle detection
-  3. Credentials  — user has connected integrations (DB check)
-  4. Templates    — {{variable}} references are valid and ancestral
-  5. Schedule     — no cron conflict with other user workflows
+Runs seven checks in sequence:
+  1. Schema           — required params, field types, cron format, Slack placeholder channel (Bug #2)
+  2. Graph            — reachability + cycle detection
+  3. Credentials      — user has connected integrations (DB check)
+  4. Templates        — {{variable}} references are valid and ancestral
+  5. Schedule         — no cron conflict with other user workflows
+  6. Condition keys   — condition expressions reference real output keys (Bug #1)
+  7. Routing          — on_success/on_failure agree with edges array (Bug #3)
 
 Design choices:
   - Schema and graph checks run WITHOUT a DB session (pure DSL analysis)
@@ -25,8 +27,10 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from backend.workflow.dsl.schema import WorkflowDSL
+from backend.workflow.validator.checks.condition_keys import check_condition_keys
 from backend.workflow.validator.checks.credentials import check_credentials
 from backend.workflow.validator.checks.graph import check_graph
+from backend.workflow.validator.checks.routing_consistency import check_routing_consistency
 from backend.workflow.validator.checks.schedule import check_schedule_conflict
 from backend.workflow.validator.checks.schema import check_schema
 from backend.workflow.validator.checks.templates import check_template_vars
@@ -102,7 +106,7 @@ class WorkflowValidator:
         else:
             logger.info("[Validator] Template check skipped (cycle detected in graph).")
 
-        # ── Check 5: Schedule conflict ─────────────────────────────────────────
+        # ── Check 5: Schedule conflict ───────────────────────────────────────────
         sched_result = check_schedule_conflict(
             dsl=dsl,
             user_id=user_id,
@@ -111,6 +115,20 @@ class WorkflowValidator:
         )
         final.merge(sched_result)
         _log_check("Schedule", sched_result)
+
+        # ── Check 6: Condition key validation (Bug #1) ────────────────────────────
+        # Only useful if graph is valid (need topo order to know which node is upstream)
+        if not any(e.code == "CYCLE_DETECTED" for e in graph_result.errors):
+            cond_result = check_condition_keys(dsl)
+            final.merge(cond_result)
+            _log_check("ConditionKeys", cond_result)
+        else:
+            logger.info("[Validator] Condition key check skipped (cycle detected in graph).")
+
+        # ── Check 7: Routing consistency (Bug #3) ────────────────────────────────
+        routing_result = check_routing_consistency(dsl)
+        final.merge(routing_result)
+        _log_check("RoutingConsistency", routing_result)
 
         logger.info(
             f"[Validator] Result: {'VALID' if final.is_valid else 'INVALID'} — "

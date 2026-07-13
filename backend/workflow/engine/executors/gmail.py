@@ -38,11 +38,22 @@ GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
-def _get_google_credentials(context: ExecutionContext) -> dict | None:
+def _get_google_credentials(context: "ExecutionContext") -> dict | None:
     """
     Retrieve and return Google OAuth credentials for the user.
+
+    Checks context.get_secret("gmail") first (populated by CredentialResolver
+    before the node runs). Falls back to a direct DB lookup for call sites
+    that don't go through the WorkflowRunner (e.g. tests, legacy paths).
+
     Returns the decrypted credentials dict, or None if not connected.
     """
+    # Fast path: CredentialResolver already populated the secret this run.
+    cached = context.get_secret("gmail")
+    if cached is not None:
+        return cached
+
+    # Fallback: direct DB query (pre-CredentialResolver behaviour).
     try:
         from backend.integrations.service import decrypt_credentials
         from backend.database.models import Integration, IntegrationService

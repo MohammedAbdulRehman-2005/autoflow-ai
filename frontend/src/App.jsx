@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './routes/ProtectedRoute';
+import { NodeRegistryProvider } from './context/NodeRegistryContext';
 
 // Pages
 import LoginPage from './pages/LoginPage';
@@ -70,7 +71,7 @@ export default function App() {
           <Route path="/" element={<ProtectedRoute><WorkspaceLayout /></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="workflow-builder" element={<WorkflowBuilderPage />} />
+            <Route path="workflow-builder" element={<NodeRegistryProvider><WorkflowBuilderPage /></NodeRegistryProvider>} />
             <Route path="marketplace" element={<MarketplacePage />} />
             <Route path="logs" element={<LogsPage />} />
             <Route path="settings" element={<SettingsPage />} />

@@ -33,8 +33,10 @@ from backend.database.models import (
 )
 from backend.workflow.dsl.schema import NodeType, WorkflowDSL, WorkflowNodeDSL
 from backend.workflow.engine.context import ExecutionContext
+from backend.workflow.engine.credential_resolver import CredentialResolver
 from backend.workflow.engine.executors.base import ExecutorResult
 from backend.workflow.engine.registry import get_executor
+from backend.workflow.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +67,8 @@ class WorkflowRunner:
         db: Session,
         trigger_payload: dict[str, Any] = None,
         user_id: uuid.UUID = None,
+        workflow_id: uuid.UUID = None,
+        triggered_by: str = "manual",
     ):
         self.dsl = dsl
         self.run_id = run_id
@@ -86,7 +90,12 @@ class WorkflowRunner:
             workflow_variables=dsl.variables.copy(),
             db=db,
             user_id=user_id,
+            workflow_id=workflow_id,
+            triggered_by=triggered_by,
         )
+
+        # CredentialResolver — single point for credential lookup (RFC-001 §8)
+        self._credential_resolver = CredentialResolver(db=db)
 
         # Track visited nodes to prevent infinite loops
         self._visit_count = 0
@@ -104,6 +113,11 @@ class WorkflowRunner:
         Updates the WorkflowRun status in the DB at start and completion.
         """
         self._update_run_status(RunStatus.running, started_at=_utcnow())
+        event_bus.emit("ExecutionStarted", {
+            "run_id": str(self.run_id),
+            "workflow_id": self.context.execution_metadata.get("workflow_id"),
+            "triggered_by": self.context.execution_metadata.get("triggered_by"),
+        })
 
         try:
             trigger_node = next(
@@ -120,6 +134,11 @@ class WorkflowRunner:
             # Completed without error
             self._update_run_status(RunStatus.success, finished_at=_utcnow())
             logger.info(f"[Runner] Run {self.run_id} completed successfully.")
+            event_bus.emit("ExecutionFinished", {
+                "run_id": str(self.run_id),
+                "workflow_id": self.context.execution_metadata.get("workflow_id"),
+                "status": "success",
+            })
 
         except Exception as e:
             error_msg = str(e)
@@ -130,11 +149,72 @@ class WorkflowRunner:
                 finished_at=_utcnow(),
                 error_message=error_msg,
             )
+            event_bus.emit("ExecutionFinished", {
+                "run_id": str(self.run_id),
+                "workflow_id": self.context.execution_metadata.get("workflow_id"),
+                "status": "failed",
+                "error": error_msg,
+            })
             raise
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────────
+    # PUBLIC: EXECUTE SINGLE NODE (Node Inspector Execute Step — RFC-002 §1)
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    async def execute_single_node(
+        self,
+        node: "WorkflowNodeDSL",
+        params_override: dict[str, Any] = None,
+    ) -> "ExecutorResult":
+        """
+        Execute one node in isolation — the Node Inspector "Execute Step" path.
+
+        CONTRACT (RFC-002 §1: same pipeline, not a separate code path):
+          - Uses the same CredentialResolver → ExecutionContext → Executor chain
+            as the full run. No mocks, no special cases.
+          - Runs exactly 1 attempt (no retry loop — single-shot by design).
+          - Does not write a DB WorkflowRun or WorkflowRunStepLog record
+            (ephemeral; the run_id on self.context is a throwaway UUID).
+          - Caller (router) is responsible for building the response DTO and
+            scrubbing secrets via _scrub_secrets() before returning to client.
+
+        execute_once and always_output_data are no-ops here:
+          They apply only to full runs with a persistent run_id.
+          This method logs a warning if either is True on the node
+          so operators know the setting was seen but not applied.
+
+        Args:
+            node            : The DSL node to execute (may be a copy with overridden params).
+            params_override : Merged on top of node.params for this call only.
+                              Never written back to the DSL.
+        """
+        if node.execute_once:
+            logger.info(
+                "[ExecuteStep] node '%s' has execute_once=True — "
+                "no-op in Execute Step context (applies to full runs only).",
+                node.id,
+            )
+        if node.always_output_data:
+            logger.info(
+                "[ExecuteStep] node '%s' has always_output_data=True — "
+                "no-op in Execute Step context (applies to full runs only).",
+                node.id,
+            )
+
+        # Merge param overrides (never persisted)
+        effective_params = {**node.params, **(params_override or {})}
+
+        # Resolve template variables against the context
+        resolved_params = self.context.resolve_params(effective_params)
+
+        # Resolve credentials — same path as full run (RFC-001 §8)
+        self._credential_resolver.resolve_for_node(node, self.context)
+
+        return await self._dispatch_executor(node, resolved_params)
+
+    # ─────────────────────────────────────────────────────────────────────────────
     # GRAPH TRAVERSAL
-    # ─────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────────
 
     async def _execute_from_node(self, node_id: str) -> None:
         """
@@ -285,6 +365,10 @@ class WorkflowRunner:
         # Resolve template variables in params ONCE before retrying
         resolved_params = self.context.resolve_params(node.params)
 
+        # Resolve credentials for this node (RFC-001 §8)
+        # Populates context.get_secret(service_name) before dispatch.
+        self._credential_resolver.resolve_for_node(node, self.context)
+
         last_result: Optional[ExecutorResult] = None
 
         for attempt in range(1, max_attempts + 1):
@@ -359,6 +443,13 @@ class WorkflowRunner:
             f"[Runner] Node '{node.id}' ({node.label}) failed after "
             f"{max_attempts} attempts. Last error: {last_result.error if last_result else 'unknown'}"
         )
+        event_bus.emit("NodeFailed", {
+            "run_id": str(self.run_id),
+            "node_id": node.id,
+            "node_label": node.label,
+            "error": last_result.error if last_result else "Max retry attempts exhausted.",
+            "attempts": max_attempts,
+        })
         return last_result or ExecutorResult.fail("Max retry attempts exhausted.")
 
     async def _dispatch_executor(
