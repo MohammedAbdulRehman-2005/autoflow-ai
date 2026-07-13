@@ -12,7 +12,7 @@
  */
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+export const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory access token (XSS-safe — not exposed to localStorage)

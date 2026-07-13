@@ -36,6 +36,7 @@ import { dslToFlow } from '../utils/flowLayout';
 import { workflowApi } from '../services/workflowApi';
 import { mutationService } from '../services/mutationService';
 import { eventBus } from '../services/eventBus';
+import { BASE_URL } from '../services/apiClient';
 
 // ── React Flow custom node type map ──────────────────────────────────────────
 const nodeTypes = { workflowNode: WorkflowNode };
@@ -155,7 +156,7 @@ export default function WorkflowBuilderPage() {
       formData.append("audio", audioBlob, "recording.webm");
 
         const response = await fetch(
-          "https://autoflow-ai-production.up.railway.app/api/v1/transcribe",
+          `${BASE_URL}/api/v1/transcribe`,
           {
             method: "POST",
             body: formData,
@@ -426,7 +427,7 @@ if(workflowId) return ;
 
       try {
   const response = await fetch(
-    "https://autoflow-ai-production.up.railway.app/api/v1/ai/parse-intent",
+    `${BASE_URL}/api/v1/ai/parse-intent`,
     {
       method: "POST",
       headers: {
