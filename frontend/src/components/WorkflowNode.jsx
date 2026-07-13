@@ -9,6 +9,7 @@
  *  - Sprint 3: "+" add-step handle that appears on hover (below the node)
  */
 
+import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Plus, Zap, Brain, Server, GitBranch, Clock, RefreshCw, Layers, StickyNote } from 'lucide-react';
 import './WorkflowNode.css';
@@ -23,7 +24,7 @@ const TYPE_ICONS = {
   transformer: Layers,
 };
 
-export default function WorkflowNode({ data, selected }) {
+function WorkflowNode({ data, selected }) {
   const Icon = TYPE_ICONS[data.type] || Server;
   const colors = data.colors || { accent: '#06b6d4', bg: 'from-cyan-500/10 to-cyan-500/5', border: 'border-cyan-500/30' };
 
@@ -128,3 +129,6 @@ export default function WorkflowNode({ data, selected }) {
     </div>
   );
 }
+
+
+export default memo(WorkflowNode);

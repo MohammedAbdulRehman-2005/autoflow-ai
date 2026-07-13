@@ -322,6 +322,16 @@ def get_node_types(
             output_schema=p.output_schema,
             default_params=p.default_params,
             doc_url=p.doc_url,
+            display_name=p.display_name,
+            category=p.category,
+            tags=p.tags,
+            recommended_after=p.recommended_after,
+            supports_streaming=p.supports_streaming,
+            supports_preview=p.supports_preview,
+            supports_retry=p.supports_retry,
+            supports_batch=p.supports_batch,
+            estimated_latency=p.estimated_latency,
+            required_scopes=p.required_scopes,
         )
         for p in NodeRegistry.list_all()
     ]

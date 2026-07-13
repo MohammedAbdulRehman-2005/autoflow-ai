@@ -194,6 +194,97 @@ class WorkflowMutationService {
     return [...this._history];
   }
 
+  /**
+   * Update a single parameter on a node.
+   * Named intention — preferred over a raw applyPatch() call from NodeInspector.
+   *
+   * @param {Object} currentDsl
+   * @param {string} nodeId
+   * @param {string} paramKey
+   * @param {*}      value
+   * @returns {Object} new DSL
+   */
+  updateParameter(currentDsl, nodeId, paramKey, value) {
+    if (!currentDsl?.nodes) return currentDsl;
+    const patch = {
+      nodes: currentDsl.nodes.map(n =>
+        n.id === nodeId
+          ? { ...n, params: { ...(n.params || {}), [paramKey]: value } }
+          : n
+      ),
+    };
+    return this.applyPatch(
+      currentDsl,
+      patch,
+      'user',
+      `Node '${nodeId}': set param '${paramKey}'`,
+    );
+  }
+
+  /**
+   * Update a node-level setting (always_output_data, execute_once, etc.).
+   *
+   * @param {Object} currentDsl
+   * @param {string} nodeId
+   * @param {string} settingKey
+   * @param {*}      value
+   * @returns {Object} new DSL
+   */
+  updateSetting(currentDsl, nodeId, settingKey, value) {
+    if (!currentDsl?.nodes) return currentDsl;
+    const patch = {
+      nodes: currentDsl.nodes.map(n =>
+        n.id === nodeId ? { ...n, [settingKey]: value } : n
+      ),
+    };
+    return this.applyPatch(
+      currentDsl,
+      patch,
+      'user',
+      `Node '${nodeId}': set setting '${settingKey}'`,
+    );
+  }
+
+  /**
+   * Update a node's display label.
+   *
+   * @param {Object} currentDsl
+   * @param {string} nodeId
+   * @param {string} label
+   * @returns {Object} new DSL
+   */
+  updateNodeLabel(currentDsl, nodeId, label) {
+    if (!currentDsl?.nodes) return currentDsl;
+    const patch = {
+      nodes: currentDsl.nodes.map(n =>
+        n.id === nodeId ? { ...n, label } : n
+      ),
+    };
+    return this.applyPatch(currentDsl, patch, 'user', `Node '${nodeId}': renamed`);
+  }
+
+  /**
+   * @typedef {Object} Transaction
+   * @description Reserved for Sprint 4 undo/redo. Groups multiple applyPatch()
+   *   calls under a single atomic mutation record.
+   *
+   * Usage (future):
+   *   const tx = mutationService.beginTransaction('Bulk update');
+   *   dsl = mutationService.updateParameter(dsl, nodeId, 'model', 'gpt-4o');
+   *   dsl = mutationService.updateSetting(dsl, nodeId, 'retry_on_fail', true);
+   *   mutationService.commitTransaction(tx);
+   *
+   * NOT IMPLEMENTED — placeholder to reserve the API surface.
+   */
+  beginTransaction(reason) {
+    // Sprint 4: implement Transaction grouping for undo/redo
+    return { reason, startVersion: undefined };
+  }
+
+  commitTransaction(_tx) {
+    // Sprint 4: no-op placeholder
+  }
+
   // ── Internal helpers ───────────────────────────────────────────────────────
 
   /**
@@ -209,6 +300,7 @@ class WorkflowMutationService {
     return { ...base, ...patch };
   }
 }
+
 
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -12,7 +12,8 @@ from backend.auth.dependencies import get_current_user
 from backend.database.models import User
 from backend.database.session import get_db
 from backend.workflow.capability_registry import CapabilityRegistry
-from backend.workflow.planner import service, editor_service
+from backend.workflow.planner import service
+from backend.workflow.planner import editor_engine  # Sprint 3.5: renamed from editor_service
 from backend.workflow.planner.schemas import (
     AddStepRequest,
     AddStepResponse,
@@ -101,7 +102,7 @@ async def add_step(
         provides the default params.
     """
     try:
-        return await editor_service.add_step(
+        return await editor_engine.add_step(
             current_dsl=payload.current_dsl,
             user_intent=payload.user_intent,
             insert_after_node_id=payload.insert_after_node_id,

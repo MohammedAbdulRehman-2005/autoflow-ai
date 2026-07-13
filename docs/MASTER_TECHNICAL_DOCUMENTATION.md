@@ -51,54 +51,24 @@
 
 ```mermaid
 graph TD
-    subgraph Frontend [Frontend Layer - React 19 / Vite]
-        UI[Workspace Pages & Studio UI]
-        Canvas[React Flow Visual Studio]
-        Chat[AI Assistant Studio Panel]
-        APIClient[Unidirectional API Client / EventBus]
-    end
-
-    subgraph Backend [Backend Layer - FastAPI]
-        Router[FastAPI Routers /api/v1/*]
-        Auth[JWT / OAuth Auth Engine]
-        Planner[AI Workflow Planner Service]
-        Validator[Graph & Template Validator]
-        DSL[DSL Canonical Schema Engine]
-        Registry[Node & Executor Registry]
-    end
-
-    subgraph Runtimes [Execution Engines]
-        Runner[Iterative DFS WorkflowRunner]
-        LangGraph[LangGraph StateGraph Runtime]
-        Scheduler[APScheduler + Celery RedBeat]
-        Celery[Celery Distributed Workers]
-    end
-
-    subgraph Persistence [Data & External Layer]
-        PG[(PostgreSQL 16 - JSONB / UUIDs)]
-        Redis[(Redis - Queue & Cache)]
-        LLM[Groq / OpenAI / Gemini APIs]
-        SaaS[OAuth Integrations: Slack, Gmail, etc.]
-    end
-
-    UI --> APIClient
-    Canvas --> APIClient
-    Chat --> APIClient
-    APIClient --> Router
-    Router --> Auth
-    Router --> Planner
-    Router --> Validator
-    Planner <--> LLM
-    Router --> Registry
-    Router --> Celery
-    Router --> Scheduler
-    Celery --> Runner
-    Celery --> LangGraph
-    Runner --> PG
-    LangGraph --> PG
-    Runner --> SaaS
-    LangGraph --> LLM
+    Prompt["Natural Language Prompt"] --> Planner["AI Planner Service<br/>Groq Llama 3.3 70B + Reflection Loop"]
+    Planner --> DSLCore{{"WorkflowDSL<br/>Canonical Compiled Graph"}}
+    Studio["React Flow Visual Studio<br/>plannedDsl + mutationService"] <-->|"dslToFlow() / patch()"| DSLCore
+    DSLCore --> Validator["WorkflowValidator<br/>cycles - reachability - templates - credentials"]
+    Validator --> Registry[("Node & Executor Registry")]
+    Validator -->|"persist"| PG[("PostgreSQL 16")]
+    Validator --> Dispatch{"Graph contains ai_agent nodes?"}
+    Dispatch -- "No" --> DFS["Iterative DFS WorkflowRunner"]
+    Dispatch -- "Yes" --> LG["LangGraph StateGraph Runtime"]
+    DFS --> SaaS["External SaaS APIs<br/>Gmail - Slack - Sheets - HubSpot - Notion"]
+    LG --> LLM["Groq / OpenAI / Gemini"]
+    DFS --> PG
+    LG --> PG
+    Celery["Celery + RedBeat + APScheduler"] --> DFS
+    Celery --> LG
 ```
+
+*Unlike a generic layered box diagram, this one deliberately centers the compiled `WorkflowDSL` object as the single artifact that both the visual Studio and the AI Planner mutate, and shows the one architectural decision — presence of `ai_agent` nodes — that routes a run into one of the two execution engines.*
 
 ---
 
@@ -193,6 +163,26 @@ Inside `WorkflowBuilderPage.jsx`:
 - React Flow canvas is bound to `nodeTypes = { workflowNode: WorkflowNode }`.
 - When a workflow is loaded or generated, `dslToFlow(dsl, savedPositions)` maps `WorkflowNodeDSL` objects to React Flow node objects and `WorkflowEdgeDSL` to styled animated edges.
 - Node layout auto-calculation uses Dagre (`flowLayout.js`) with left-to-right (`LR`) hierarchical arrangement when existing position data is absent.
+
+```mermaid
+flowchart TD
+    DSLState["plannedDsl<br/>(canonical state in WorkflowBuilderPage.jsx)"] --> Derive["dslToFlow(dsl, savedPositions)"]
+    Derive --> Layout{"Existing positions saved?"}
+    Layout -- "No" --> Dagre["Dagre LR auto-layout"]
+    Layout -- "Yes" --> Saved["Use savedPositions {x, y}"]
+    Dagre --> RF["React Flow Canvas<br/>nodeTypes: workflowNode"]
+    Saved --> RF
+    RF --> Node["WorkflowNode.jsx renderer<br/>icon, service badge, status border"]
+    Node --> Select["User selects a node"]
+    Select --> Inspector["NodeInspector drawer<br/>parameter_schema-driven form, credential selector, retry/error policy"]
+    Inspector --> Mutation["mutationService.js<br/>incremental, non-destructive DSL patch"]
+    Chat["AI Assistant Studio Panel"] --> Mutation
+    Mutation --> DSLState
+    Inspector --> Test["executeNodeStep()<br/>single-node isolated test run"]
+    DSLState --> API["workflowApi.js<br/>updateWorkflow / validateWorkflow / runWorkflow"]
+```
+
+This is the loop that keeps canvas layout stable across regenerations: whether a mutation originates from a manual drag, a `NodeInspector` edit, or an AI Studio chat suggestion, it is always funneled through `mutationService.js` as a patch against `plannedDsl` rather than a full re-derivation, which is why `savedPositions` survive AI-driven edits.
 
 ```javascript
 // Excerpt from frontend/src/utils/flowLayout.js showing deterministic Dagre layout
@@ -315,6 +305,29 @@ sequenceDiagram
 ## 6. DSL Documentation
 
 The **Domain-Specific Language (DSL)** is the canonical, executable representation of every workflow in AutoFlow AI X. It is strictly typed via Pydantic in `backend/workflow/dsl/schema.py`.
+
+### 6.0 Compiler Pipeline
+
+```mermaid
+flowchart TD
+    NL["Natural Language Intent"] --> Root["WorkflowDSL Root<br/>id, version, migration_version, compiler_version, trigger, variables"]
+    Root --> Nodes["nodes: WorkflowNodeDSL[]"]
+    Root --> Edges["edges: WorkflowEdgeDSL[]"]
+    Nodes --> NodeFields["id / type / service / operation / params<br/>retry_policy / error_policy / on_success / on_failure"]
+    Edges --> EdgeFields["source_id / target_id / condition"]
+    NodeFields --> Checks
+    EdgeFields --> Checks
+    subgraph Checks["WorkflowValidator Static Checks"]
+        Schema["Pydantic Schema Check"]
+        Reach["BFS Reachability from trigger node"]
+        Cycle["Kahn's Topological Sort<br/>cycle detection"]
+        Cred["Credential Availability Check"]
+        Tmpl["Jinja2 Template Key Check<br/>{{node_id.output.field}}"]
+    end
+    Checks --> Output["Compiler Output:<br/>validated, executable DSL graph"]
+```
+
+The DSL compiler treats `Node` and `Edge` as two independently-typed collections rather than an inline nested tree — this is what lets `WorkflowValidator` run graph-theoretic checks (BFS reachability, Kahn's-algorithm cycle detection) on `nodes` + `edges` in isolation from the Pydantic field-level schema checks, and is also why the same DSL document is equally consumable by the DFS `WorkflowRunner`, the `LangGraphRuntime` compiler, and `dslToFlow()` on the frontend.
 
 ### 6.1 Root DSL Specification (`WorkflowDSL`)
 ```json
@@ -446,23 +459,51 @@ AutoFlow AI X implements a resilient dual runtime engine.
   When a workflow contains `NodeType.ai_agent` steps, `LangGraphRuntime` compiles the DSL into a LangGraph `StateGraph(WorkflowState)` via `compile_dsl_to_graph`. Agent steps run within structured LLM execution state transitions.
 
 ```mermaid
-graph TD
-    TriggerRun[POST /workflows/id/run] --> DBRun[Create WorkflowRun DB Record]
-    DBRun --> CeleryTask[Celery: autoflow.run_workflow]
-    CeleryTask --> CheckNodes{Has ai_agent nodes?}
-    CheckNodes -- No --> DFSRunner[WorkflowRunner: Iterative DFS Engine]
-    CheckNodes -- Yes --> LangGraph[LangGraphRuntime: Compile StateGraph]
-
-    subgraph DFS Execution
-        DFSRunner --> NextNode[Pop Node from DFS Stack]
-        NextNode --> ExecPlugin[Lookup BaseExecutor in NodeRegistry]
-        ExecPlugin --> HandleRetry{Execution Failed?}
-        HandleRetry -- Yes & retry --> Backoff[Apply Exponential Backoff]
-        HandleRetry -- Yes & stop --> MarkFail[Mark WorkflowRun FAILED]
-        HandleRetry -- No --> WriteLog[Write WorkflowRunStepLog]
-        WriteLog --> RouteDown[Route to on_success / edge target]
-    end
+flowchart TD
+    Start["run_workflow_task.delay(run_id)"] --> Dispatch{"Graph contains ai_agent nodes?"}
+    Dispatch -- "No" --> Ctx["Initialize ExecutionContext<br/>node_outputs: dict"]
+    Dispatch -- "Yes" --> LGRef["→ see LangGraph Runtime, below"]
+    Ctx --> Stack["Push trigger node onto DFS Stack"]
+    Stack --> Pop["Pop node from Stack"]
+    Pop --> Cred["CredentialResolver<br/>resolve credential_id → decrypted Integration token"]
+    Cred --> Tmpl["Template Resolver<br/>resolve {{node_id.output.field}} / {{vars.key}}"]
+    Tmpl --> Exec["Executor lookup via NodeRegistry<br/>BaseExecutor subclass runs operation"]
+    Exec --> Outcome{"Execution result"}
+    Outcome -- "Success" --> Log["Write WorkflowRunStepLog<br/>input_json / output_json / duration_ms"]
+    Outcome -- "Failure, error_policy=retry" --> Backoff["Exponential backoff<br/>max_attempts / backoff_multiplier"]
+    Backoff --> Exec
+    Outcome -- "Failure, error_policy=stop" --> Fail["Mark WorkflowRun FAILED"]
+    Log --> Route{"Node type"}
+    Route -- "condition" --> Branch["Evaluate expression → on_success / on_failure"]
+    Route -- "loop" --> Unroll["Iterate list items<br/>up to MAX_LOOP_ITERATIONS = 500"]
+    Route -- "action / ai_agent / transformer" --> Next["on_success target"]
+    Branch --> Guard{"visited_counts < MAX_NODE_VISITS 1000?"}
+    Unroll --> Guard
+    Next --> Guard
+    Guard -- "Yes" --> Stack
+    Guard -- "No" --> Fail
+    Stack -.->|"stack empty"| Finish["Finalize WorkflowRun: success"]
 ```
+
+### 7.1.1 LangGraph Runtime (Separate Compilation Path)
+
+When the static graph contains one or more `NodeType.ai_agent` steps, dispatch skips the DFS stack entirely and hands the DSL to a structurally different engine — `LangGraphRuntime` compiles the same document into a stateful, checkpointed graph rather than walking it imperatively:
+
+```mermaid
+flowchart TD
+    DSL["WorkflowDSL containing ai_agent nodes"] --> Compiler["compile_dsl_to_graph()"]
+    Compiler --> SG["StateGraph(WorkflowState)"]
+    SG --> Nodes["Register each DSL node as a LangGraph node"]
+    Nodes --> Agents["Agent Nodes<br/>LLM reasoning + tool-call steps"]
+    Agents --> Mem["WorkflowState carries node_outputs<br/>across the graph as shared memory"]
+    Mem --> Edges["Conditional edges mirror on_success / on_failure + condition expressions"]
+    Edges --> Invoke["graph.invoke() / .stream() execution"]
+    Invoke --> Checkpoint["State checkpoint per super-step"]
+    Checkpoint --> Agents
+    Invoke -->|"graph terminates"| Return["Final WorkflowState → WorkflowRunStepLogs"]
+```
+
+The two engines share nothing at execution time — the DFS engine's `ExecutionContext.node_outputs` and the LangGraph engine's `WorkflowState` are separate mechanisms that happen to serve the same purpose — but both engines write back to the same `WorkflowRunStepLog` table, which is what lets the Studio's Logs page render either engine's history identically.
 
 ### 7.2 Execution State & Template Substitution (`ExecutionContext`)
 `ExecutionContext` (`backend/workflow/engine/context.py`) tracks live state during a run:
@@ -474,6 +515,46 @@ graph TD
 ## 8. Integrations
 
 The platform features a modular plugin architecture governed by `NodeRegistry` (`backend/workflow/node_registry.py`) and executed by subclasses of `BaseExecutor` (`backend/workflow/engine/executors/base.py`).
+
+### 8.1 Node Registry Architecture
+
+Every integration in the table below is not a hardcoded switch statement — it is an entry in a single registry that simultaneously drives execution, validation, and UI rendering:
+
+```mermaid
+flowchart TD
+    Registry["NodeRegistry<br/>backend/workflow/node_registry.py"] --> Plugin["NodePlugin descriptor<br/>keyed by (service, operation)"]
+    Plugin --> Executor["BaseExecutor subclass<br/>engine/executors/*.py"]
+    Plugin --> ParamSchema["Parameter Schema<br/>Pydantic fields per operation"]
+    Plugin --> UISchema["UI Schema<br/>exposed via GET /workflows/node-types"]
+    ParamSchema --> Validation["WorkflowValidator cross-check<br/>credential availability + template keys"]
+    ParamSchema --> Inspector["NodeInspector dynamic form fields"]
+    UISchema --> Palette["Studio node palette + icons"]
+    Plugin --> Docs["Auto-generated capability docs<br/>fed into Planner system prompt few-shot spec"]
+    Executor --> Runtime["Invoked identically by WorkflowRunner and LangGraphRuntime"]
+```
+
+Because the Planner's few-shot system prompt is generated from the same registry that powers `NodeInspector`'s form fields and `WorkflowValidator`'s credential checks, adding a new integration (a new row in the table below) automatically becomes something the AI Planner can plan against, the Studio can render a form for, and the validator can check — without touching any of those three systems directly.
+
+### 8.2 OAuth & Credential Resolution Flow
+
+```mermaid
+flowchart TD
+    User["User clicks Connect (Slack / Gmail / etc.)"] --> Redirect["Redirect to provider OAuth consent screen"]
+    Redirect --> Callback["OAuth callback route<br/>backend/integrations/"]
+    Callback --> Exchange["Exchange auth code for access + refresh token"]
+    Exchange --> Encrypt["Encrypt tokens → credentials_encrypted"]
+    Encrypt --> IntegrationRow[("Integration row<br/>service_name + user_id")]
+    IntegrationRow -. "referenced by" .-> NodeCred["DSL node.credential_id"]
+    NodeCred --> Resolver["CredentialResolver (engine layer)<br/>invoked at run time"]
+    Resolver --> Decrypt["Decrypt token"]
+    Decrypt --> Refresh{"Token expired?"}
+    Refresh -- "Yes" --> RefreshFlow["Silent refresh via provider refresh_token"]
+    RefreshFlow --> Decrypt
+    Refresh -- "No" --> Inject["Inject Authorization header"]
+    Inject --> Executor["BaseExecutor calls external SaaS API"]
+```
+
+`CredentialResolver` is what lets a DSL node reference credentials only by opaque `credential_id` rather than embedding secrets in the graph itself — the same DSL document can be exported, cloned into an `IndustryTemplate`, or shared without ever containing a live token.
 
 | Service | Operation | Executor Implementation | Schema & API Capabilities |
 | :--- | :--- | :--- | :--- |
@@ -495,67 +576,29 @@ The platform features a modular plugin architecture governed by `NodeRegistry` (
 
 The persistence layer uses **PostgreSQL 16** with declarative models defined in `backend/database/models.py`.
 
-### 9.1 Entity-Relationship Diagram
+### 9.1 Data Lifecycle
+
+Rather than a static schema diagram, the lifecycle below shows what actually happens to a workflow's data over time as it moves from draft to executed history:
 
 ```mermaid
-erDiagram
-    USERS ||--o{ WORKFLOWS : owns
-    USERS ||--o{ API_KEYS : creates
-    USERS ||--o{ INTEGRATIONS : connects
-    USERS ||--o{ WORKFLOW_RUNS : triggers
-    USERS ||--o{ AUDIT_LOGS : logs
-    WORKFLOWS ||--o{ WORKFLOW_NODES : contains
-    WORKFLOWS ||--o{ WORKFLOW_EDGES : contains
-    WORKFLOWS ||--o{ WORKFLOW_RUNS : executes
-    WORKFLOW_NODES ||--o{ WORKFLOW_RUN_STEP_LOGS : logs
-    WORKFLOW_RUNS ||--o{ WORKFLOW_RUN_STEP_LOGS : records
-    WORKFLOW_RUNS ||--o{ WORKFLOW_RUNS : "parent/child retry"
-
-    USERS {
-        uuid id PK
-        string email UK
-        string password_hash
-        user_plan plan
-        int monthly_run_count
-    }
-
-    WORKFLOWS {
-        uuid id PK
-        uuid user_id FK
-        string name
-        workflow_status status
-        jsonb ai_context_json
-        int version
-    }
-
-    WORKFLOW_NODES {
-        uuid id PK
-        uuid workflow_id FK
-        node_type node_type
-        jsonb config_json
-        float position_x
-        float position_y
-    }
-
-    WORKFLOW_RUNS {
-        uuid id PK
-        uuid workflow_id FK
-        uuid user_id FK
-        run_status status
-        jsonb output_json
-        int attempt_number
-    }
-
-    WORKFLOW_RUN_STEP_LOGS {
-        uuid id PK
-        uuid run_id FK
-        uuid node_id FK
-        run_status status
-        jsonb input_json
-        jsonb output_json
-        int duration_ms
-    }
+flowchart LR
+    Draft["Workflow created<br/>status: draft"] --> Active["status: active<br/>version incremented on each PATCH"]
+    Active --> Trigger["Trigger fires<br/>schedule / manual / webhook"]
+    Trigger --> RunRow["WorkflowRun row created<br/>status: pending"]
+    RunRow --> Running["Celery dispatches run_workflow_task<br/>status: running"]
+    Running --> StepLogs["WorkflowRunStepLog written per node<br/>input_json / output_json / duration_ms"]
+    StepLogs --> Outcome{"Final state"}
+    Outcome -- "success" --> Success["WorkflowRun status: success"]
+    Outcome -- "failure, retryable" --> Retry["New WorkflowRun via parent_run_id<br/>attempt_number += 1"]
+    Retry --> RunRow
+    Outcome -- "failure, exhausted" --> Failed["WorkflowRun status: failed"]
+    Success --> Audit["AuditLog immutable entry<br/>BIGSERIAL trail"]
+    Failed --> Audit
+    Audit --> Analytics["User.monthly_run_count incremented<br/>Dashboard quota + status cards"]
+    Active --> Paused["status: paused / archived<br/>via schedule pause or soft-delete"]
 ```
+
+The self-referential `parent_run_id` on `WorkflowRun` is what turns a single failed execution into a retry *chain* rather than an overwritten row — every attempt is preserved, so the Logs page can render the full retry history of a single trigger event, not just its final outcome.
 
 ### 9.2 Complete Model Documentation
 1. **`User` (`users` table):** Primary identity and account tier record (`plan`: `free`, `starter`, `pro`, `enterprise`). Tracks quota limits (`monthly_run_count`).
@@ -641,6 +684,26 @@ AutoFlow AI X implements token-based authentication with strict token rotation:
 ### 12.1 Natural Language Planning Engine
 - **LLM Selection:** Uses Groq (`llama-3.3-70b-versatile`) configured with low temperature (`0.2`) to ensure structured, deterministic JSON outputs.
 - **System Prompt Engineering:** `build_system_prompt()` injects the complete `WorkflowDSL` specification, schema rules, reserved ID restrictions, and few-shot canonical JSON examples.
+
+```mermaid
+flowchart TD
+    P["User Prompt"] --> IP["Intent Parser<br/>parse_user_intent — keyword fallback + Gemini"]
+    IP --> FE["Follow-up Engine<br/>generates clarifying questions for ambiguous scope"]
+    FE --> PB["Prompt Builder<br/>build_system_prompt() injects DSL spec, few-shot examples, reserved IDs"]
+    PB --> Groq["Groq llama-3.3-70b-versatile<br/>temperature 0.2"]
+    Groq --> Extract["_extract_json() on raw completion"]
+    Extract --> Parse{"WorkflowDSL.model_validate() succeeds?"}
+    Parse -- "No" --> Reflect1["Reflection: build_retry_prompt()<br/>append parse error to messages"]
+    Reflect1 --> Groq
+    Parse -- "Yes" --> Val{"validate_workflow_graph().is_valid?"}
+    Val -- "No" --> Reflect2["Reflection: append DAG validation errors"]
+    Reflect2 --> Groq
+    Val -- "Yes" --> Persist["Persist Workflow + WorkflowNode rows"]
+    Persist --> Done["Return workflow_id + dsl + stats"]
+```
+
+*Both reflection branches feed back into the same Groq call — the loop below is bounded by `MAX_RETRIES`, so a prompt that never converges to a valid, cycle-free DAG fails closed after 3 attempts rather than looping indefinitely.*
+
 - **Reflection & Self-Correction Loop:**
   ```python
   # Code reality in backend/workflow/planner/service.py
@@ -739,3 +802,23 @@ Located in `backend/services/whisper_service.py`. Accepts multipart audio upload
 2. **Visual Step Debugger & Breakpoints:** Add pause execution states allowing users to inspect runtime variables midway through a workflow execution.
 3. **Human-in-the-Loop Approval Nodes:** Introduce dedicated approval nodes that pause workflow execution until an authenticated user approves via email or Slack button webhook.
 4. **Sub-Workflows & Composite Nodes:** Allow users to package an entire workflow as a single reusable composite node inside another workflow.
+
+### 17.1 AI-Native Editing Architecture (Sprint 3 Preview)
+
+The Capability Registry item above (RFC-001 §4) is the missing piece that turns the AI Assistant Studio Panel from a read-only chat into an editor that can safely mutate a live workflow in place:
+
+```mermaid
+flowchart TD
+    Ask["User: 'add a step to notify Slack if urgent'"] --> EditorAI["Editor AI<br/>AI Assistant Studio Panel"]
+    EditorAI --> CapReg["Capability Registry<br/>RFC-001 §4 — NodeRegistry extended with OAuth scopes + schema"]
+    CapReg --> Feasible{"Requested capability available?"}
+    Feasible -- "No" --> Clarify["Ask a follow-up / suggest closest available capability"]
+    Feasible -- "Yes" --> Patch["Generate a targeted DSL Patch<br/>add_node / update_params / connect_edge — not a full regeneration"]
+    Patch --> MutSvc["mutationService.js applies the patch"]
+    MutSvc --> DSLState["plannedDsl updated in place"]
+    DSLState --> Revalidate["WorkflowValidator re-checks the graph"]
+    Revalidate --> Flow["dslToFlow() re-renders React Flow<br/>savedPositions preserved"]
+    Flow --> Review["User reviews the diff and approves"]
+```
+
+The key departure from the initial planning pipeline in §12.1 is scope: the Editor AI never regenerates the whole `WorkflowDSL` from scratch — it is constrained by the Capability Registry to emit a minimal patch against the existing graph, which is what `mutationService.js` was already built to apply non-destructively (see §3.5).

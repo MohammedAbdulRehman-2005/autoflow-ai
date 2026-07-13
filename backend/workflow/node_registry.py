@@ -1,5 +1,5 @@
 """
-AutoFlow AI X — Node Registry  (RFC-001 §3)
+AutoFlow AI X â€” Node Registry  (RFC-001 Â§3)
 =============================================
 Promotes the executor-only EXECUTOR_REGISTRY into a full plugin registry.
 
@@ -9,29 +9,29 @@ Each NodePlugin entry adds to the existing executor reference:
   - default_params   : Sensible defaults pre-filled by the UI
   - label / icon     : Display metadata for the canvas node
 
-The existing EXECUTOR_REGISTRY in engine/registry.py is NOT replaced —
+The existing EXECUTOR_REGISTRY in engine/registry.py is NOT replaced â€”
 it remains the runtime dispatch table. NodeRegistry wraps it and adds metadata.
 
-Minimum coverage required (RFC-001 §3):
+Minimum coverage required (RFC-001 Â§3):
   scheduler/cron, gmail/send_email, gmail/get_emails,
   slack/post_message, groq/llm_generate,
   builtin/condition_branch, builtin/set_variable
 
-# TODO: RFC-001 §4, Sprint 3 — Capability Registry sits alongside NodeRegistry.
+# TODO: RFC-001 Â§4, Sprint 3 â€” Capability Registry sits alongside NodeRegistry.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, List, Optional, Type
 
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # NodePlugin dataclass
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @dataclass
 class NodePlugin:
@@ -54,15 +54,54 @@ class NodePlugin:
     # Used by check_condition_keys to validate downstream template references.
     output_schema: dict = field(default_factory=dict)
 
-    # Sensible param defaults — pre-filled when the user adds this node.
+    # Sensible param defaults â€” pre-filled when the user adds this node.
     default_params: dict = field(default_factory=dict)
 
-    # Per-node validator callable — called by WorkflowValidator after schema check.
+    # Per-node validator callable â€” called by WorkflowValidator after schema check.
     # Signature: validator(node: WorkflowNodeDSL, dsl: WorkflowDSL) -> list[str]
     # Returns a list of error/warning messages (empty = valid).
     validator: Optional[Callable] = None
 
     doc_url: Optional[str] = None
+
+    # â”€â”€ Display metadata (Sprint 3.5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    display_name: Optional[str] = None
+    """Human-readable override for label in UI. Defaults to label if None."""
+
+    category: str = "general"
+    """Grouping category for node palette: email|ai|scheduling|data|logic|messaging|general"""
+
+    color: Optional[str] = None
+    """Optional hex color accent for the canvas node card. Falls back to node_type default."""
+
+    tags: List[str] = field(default_factory=list)
+    """Searchable tags e.g. ['email', 'send', 'notification']."""
+
+    # â”€â”€ Composition hints (Sprint 3.5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    recommended_after: List[str] = field(default_factory=list)
+    """List of 'service.operation' keys this node is commonly placed after."""
+
+    # â”€â”€ Capability flags â€” metadata only, no behavior (Sprint 3.5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    supports_streaming: bool = False
+    """True if this executor can yield output incrementally (for future streaming UI)."""
+
+    supports_preview: bool = False
+    """True if a preview/dry-run is available without full execution."""
+
+    supports_retry: bool = True
+    """True if the executor benefits from retry_policy (most action nodes do)."""
+
+    supports_batch: bool = False
+    """True if this executor accepts list-typed inputs natively."""
+
+    estimated_latency: str = "medium"
+    """Human hint: 'fast' | 'medium' | 'slow'. Used for future UX affordances."""
+
+    # â”€â”€ Auth / OAuth metadata (Sprint 3.5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    required_scopes: List[str] = field(default_factory=list)
+    """OAuth scopes this node requires (e.g. ['gmail.send']). UI hint only â€” not enforced here."""
+
+
 
     @property
     def key(self) -> str:
@@ -70,9 +109,9 @@ class NodePlugin:
         return f"{self.service}.{self.operation}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # NodeRegistry
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class NodeRegistry:
     """
@@ -118,9 +157,9 @@ class NodeRegistry:
         return plugin.output_schema if plugin else {}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Plugin registrations — minimum RFC-001 §3 coverage
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Plugin registrations â€” minimum RFC-001 Â§3 coverage
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _register_all() -> None:
     """Register all built-in node plugins. Called once at module import time."""
@@ -137,7 +176,7 @@ def _register_all() -> None:
     from backend.workflow.engine.executors.slack import SlackPostMessageExecutor
     from backend.workflow.engine.executors.ai_agent import LLMGenerateExecutor
 
-    # ── scheduler / cron ────────────────────────────────────────────────────
+    # â”€â”€ scheduler / cron â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
         service="scheduler",
         operation="cron",
@@ -146,6 +185,10 @@ def _register_all() -> None:
         icon="Clock",
         executor_class=TriggerExecutor,
         doc_url="https://docs.autoflow.ai/nodes/scheduler",
+        category="scheduling",
+        tags=["trigger", "cron", "schedule", "time", "recurring"],
+        estimated_latency="fast",
+        supports_retry=False,
         parameter_schema={
             "type": "object",
             "required": ["cron_expression"],
@@ -173,7 +216,7 @@ def _register_all() -> None:
         default_params={"cron_expression": "0 9 * * 1", "timezone": "UTC"},
     ))
 
-    # ── gmail / send_email ───────────────────────────────────────────────────
+    # â”€â”€ gmail / send_email â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
         service="gmail",
         operation="send_email",
@@ -182,6 +225,11 @@ def _register_all() -> None:
         icon="Mail",
         executor_class=GmailSendEmailExecutor,
         doc_url="https://developers.google.com/gmail/api/reference/rest",
+        category="email",
+        tags=["email", "send", "gmail", "notification", "message"],
+        recommended_after=["groq.llm_generate", "builtin.condition_branch"],
+        required_scopes=["https://www.googleapis.com/auth/gmail.send"],
+        estimated_latency="medium",
         parameter_schema={
             "type": "object",
             "required": ["to", "subject", "body"],
@@ -231,7 +279,7 @@ def _register_all() -> None:
         default_params={"to": "", "subject": "", "body": ""},
     ))
 
-    # ── gmail / get_emails ───────────────────────────────────────────────────
+    # â”€â”€ gmail / get_emails â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
         service="gmail",
         operation="get_emails",
@@ -240,6 +288,10 @@ def _register_all() -> None:
         icon="Inbox",
         executor_class=GmailGetEmailsExecutor,
         doc_url="https://developers.google.com/gmail/api/reference/rest",
+        category="email",
+        tags=["email", "fetch", "inbox", "gmail", "read", "receive"],
+        required_scopes=["https://www.googleapis.com/auth/gmail.readonly"],
+        estimated_latency="medium",
         parameter_schema={
             "type": "object",
             "required": ["query"],
@@ -254,7 +306,7 @@ def _register_all() -> None:
                     "default": 10,
                     "minimum": 1,
                     "maximum": 100,
-                    "ui": {"widget": "number", "helpText": "Maximum emails to fetch (1–100)."},
+                    "ui": {"widget": "number", "helpText": "Maximum emails to fetch (1â€“100)."},
                 },
                 "credential_id": {
                     "type": "string",
@@ -263,7 +315,7 @@ def _register_all() -> None:
                 },
             },
         },
-        # Pinned from gmail.py lines 172 & 202-208 — the EXACT output shape.
+        # Pinned from gmail.py lines 172 & 202-208 â€” the EXACT output shape.
         output_schema={
             "type": "object",
             "properties": {
@@ -291,7 +343,7 @@ def _register_all() -> None:
         default_params={"query": "is:unread", "max_results": 10},
     ))
 
-    # ── slack / post_message ─────────────────────────────────────────────────
+    # â”€â”€ slack / post_message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
         service="slack",
         operation="post_message",
@@ -300,6 +352,11 @@ def _register_all() -> None:
         icon="MessageSquare",
         executor_class=SlackPostMessageExecutor,
         doc_url="https://api.slack.com/methods/chat.postMessage",
+        category="messaging",
+        tags=["slack", "notify", "message", "chat", "alert"],
+        recommended_after=["groq.llm_generate", "builtin.condition_branch"],
+        required_scopes=["chat:write"],
+        estimated_latency="fast",
         parameter_schema={
             "type": "object",
             "required": ["channel", "text"],
@@ -349,7 +406,7 @@ def _register_all() -> None:
         default_params={"channel": "", "text": ""},
     ))
 
-    # ── groq / llm_generate ──────────────────────────────────────────────────
+    # â”€â”€ groq / llm_generate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
         service="groq",
         operation="llm_generate",
@@ -358,6 +415,10 @@ def _register_all() -> None:
         icon="Sparkles",
         executor_class=LLMGenerateExecutor,
         doc_url="https://console.groq.com/docs/openai",
+        category="ai",
+        tags=["ai", "llm", "generate", "text", "groq", "language-model"],
+        estimated_latency="slow",
+        supports_streaming=True,
         parameter_schema={
             "type": "object",
             "required": ["user_prompt"],
@@ -412,7 +473,7 @@ def _register_all() -> None:
         },
     ))
 
-    # ── builtin / condition_branch ───────────────────────────────────────────
+    # â”€â”€ builtin / condition_branch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
         service="builtin",
         operation="condition_branch",
@@ -421,6 +482,10 @@ def _register_all() -> None:
         icon="GitBranch",
         executor_class=ConditionBranchExecutor,
         doc_url="https://docs.autoflow.ai/nodes/condition",
+        category="logic",
+        tags=["condition", "branch", "if", "logic", "route"],
+        estimated_latency="fast",
+        supports_retry=False,
         parameter_schema={
             "type": "object",
             "required": ["condition"],
@@ -451,7 +516,7 @@ def _register_all() -> None:
         default_params={"condition": ""},
     ))
 
-    # ── builtin / set_variable ───────────────────────────────────────────────
+    # â”€â”€ builtin / set_variable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
         service="builtin",
         operation="set_variable",
@@ -460,6 +525,10 @@ def _register_all() -> None:
         icon="Variable",
         executor_class=SetVariableExecutor,
         doc_url="https://docs.autoflow.ai/nodes/set-variable",
+        category="data",
+        tags=["variable", "set", "transform", "data", "store"],
+        estimated_latency="fast",
+        supports_retry=False,
         parameter_schema={
             "type": "object",
             "required": ["variable", "value"],
@@ -489,3 +558,4 @@ def _register_all() -> None:
 
 # Register all plugins on module import.
 _register_all()
+
