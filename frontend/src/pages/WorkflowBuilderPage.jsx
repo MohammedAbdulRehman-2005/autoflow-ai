@@ -376,8 +376,8 @@ finally{
   }, [workflowName, plannedDsl, applyDsl]);
 
   // ── Send message to AI ────────────────────────────────────────────────────
-  const sendMessage = useCallback(async (overrideText) => {
-    const userText = (overrideText ?? chatInput).trim();
+  const sendMessage = useCallback(async () => {
+    const userText = chatInput.trim();
     if (!userText || isThinking) return;
 
     setChatInput('');
