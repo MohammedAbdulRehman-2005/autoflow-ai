@@ -228,6 +228,16 @@ const stopRecording = () => {
 
   const addLog = (msg) => setTerminalLogs(prev => [...prev, `${new Date().toLocaleTimeString()} › ${msg}`]);
 
+  // ── Apply a new DSL to the canvas ────────────────────────────────────────
+  const applyDsl = useCallback((dsl) => {
+    setPlannedDsl(dsl);
+    localStorage.setItem("draft_workflow", JSON.stringify(dsl));
+    const { nodes, edges } = dslToFlow(dsl, savedPositionsRef.current);
+    setRfNodes(nodes);
+    setRfEdges(edges);
+    if (dsl.name) setWorkflowName(dsl.name);
+  }, [setRfNodes, setRfEdges]);
+
   // ── Node Inspector callbacks (Sprint 2) ──────────────────────────────────
   const handleNodeClick = useCallback((_event, rfNode) => {
     if (!plannedDsl) return;
@@ -308,16 +318,6 @@ const stopRecording = () => {
 
   // Workflow ID from localStorage (used by Inspector for Execute Step)
   const currentWorkflowId = localStorage.getItem('current_workflow_id');
-
-  // ── Apply a new DSL to the canvas ────────────────────────────────────────
-  const applyDsl = useCallback((dsl) => {
-    setPlannedDsl(dsl);
-    localStorage.setItem("draft_workflow",JSON.stringify(dsl));
-    const { nodes, edges } = dslToFlow(dsl, savedPositionsRef.current);
-    setRfNodes(nodes);
-    setRfEdges(edges);
-    if (dsl.name) setWorkflowName(dsl.name);
-  }, [setRfNodes, setRfEdges]);
 
 useEffect(() => {
   const workflowId =
