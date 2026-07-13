@@ -261,16 +261,6 @@ if(workflowId) return ;
   }
 }, [applyDsl]);
 
-// ── Auto-send prompt handed off from Dashboard ───────────────────────────
-  useEffect(() => {
-    const incomingPrompt = location.state?.initialPrompt;
-    if (incomingPrompt) {
-      sendMessage(incomingPrompt);
-      // Clear the navigation state so refreshing this page won't re-trigger it
-      window.history.replaceState({}, document.title);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   
   // ── Handle node drag stop → save position ────────────────────────────────
   const onNodeDragStop = useCallback((_, node) => {
@@ -858,7 +848,4 @@ finally{
     </div>
   );
 }
-
-
-
 
