@@ -251,6 +251,10 @@ async def plan_workflow(
       5. Save to DB
       6. Return full response
     """
+    if not settings.GROQ_API_KEY:
+        raise ValueError(
+            "GROQ_API_KEY environment variable is not set on Render. Please add your free Groq API key in Render Dashboard -> Environment Variables."
+        )
     groq_client = Groq(api_key=settings.GROQ_API_KEY)
 
     # Extract operations from the intent so we can filter the schema block to

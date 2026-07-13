@@ -111,12 +111,32 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+def _add_cors_headers(request: Request, headers: dict) -> dict:
+    origin = request.headers.get("origin")
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return headers
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    headers = _add_cors_headers(request, dict(exc.headers or {}))
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=headers,
+    )
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    headers = _add_cors_headers(request, {})
     return JSONResponse(
         status_code=500,
         content={"detail": f"Internal Server Error: {str(exc)}"},
+        headers=headers,
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,9 +160,9 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(intent_router, prefix="/api/v1")
 app.include_router(followup_router, prefix="/api/v1")
 app.include_router(planner_router, prefix="/api/v1")
-app.include_router(crud_router, prefix="/api/v1")
-app.include_router(validator_router, prefix="/api/v1")
 app.include_router(engine_router, prefix="/api/v1")
+app.include_router(validator_router, prefix="/api/v1")
+app.include_router(crud_router, prefix="/api/v1")
 app.include_router(scheduler_router, prefix="/api/v1")
 app.include_router(gmail_router, prefix="/api/v1")
 app.include_router(integrations_router, prefix="/api/v1")
