@@ -120,23 +120,13 @@ export default function DashboardPage() {
     }
   };
 
-<<<<<<< HEAD
-// ── AI Prompt → hand off to Workflow Builder chat ──────────────────────────
-const handleGenerateWorkflow = () => {
-  if (!promptValue.trim()) return;
-  const prompt = promptValue.trim();
-  navigate('/workflow-builder', { state: { initialPrompt: prompt } });
-};
-
-=======
-  // ── AI Prompt → hand off to workflow builder ─────────────────────────────────────────────
+  // ── AI Prompt → hand off to Workflow Builder chat ──────────────────────────
   const handleGenerateWorkflow = () => {
-    if(! promptValue.trim()) return ;
-    const prompt =promptValue.trim();
-    navigate('/workflow-builder', {state : {initialPrompt : prompt}});
+    if (!promptValue.trim()) return;
+    const prompt = promptValue.trim();
+    navigate('/workflow-builder', { state: { initialPrompt: prompt } });
   };
-    
->>>>>>> dev
+
   // ── Voice dictation ───────────────────────────────────────────────────────
   const toggleVoice = () => {
     const SpeechAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
