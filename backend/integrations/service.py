@@ -55,6 +55,8 @@ PROVIDER_CONFIG: dict[str, dict] = {
             "https://www.googleapis.com/auth/gmail.readonly",
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/calendar.events",
+            "https://www.googleapis.com/auth/drive.file",
+            "https://www.googleapis.com/auth/drive",
             "openid",
             "email",
             "profile",
