@@ -175,6 +175,12 @@ def _register_all() -> None:
     )
     from backend.workflow.engine.executors.slack import SlackPostMessageExecutor
     from backend.workflow.engine.executors.ai_agent import LLMGenerateExecutor
+    from backend.workflow.engine.executors.google_drive import (
+        GoogleDriveCreateFolderExecutor,
+        GoogleDriveUploadFileExecutor,
+        GoogleDriveListFilesExecutor,
+        GoogleDriveGenericExecutor,
+    )
 
     # â”€â”€ scheduler / cron â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
@@ -553,6 +559,69 @@ def _register_all() -> None:
             "required": ["variable", "value"],
         },
         default_params={"variable": "", "value": ""},
+    ))
+
+    # ── google_drive / create_folder ──────────────────────────────────────────
+    NodeRegistry.register(NodePlugin(
+        service="google_drive",
+        operation="create_folder",
+        node_type="action",
+        label="Create Google Drive Folder",
+        icon="FolderPlus",
+        executor_class=GoogleDriveCreateFolderExecutor,
+        category="data",
+        tags=["drive", "google", "folder", "create"],
+        parameter_schema={
+            "type": "object",
+            "properties": {
+                "folder_name": {"type": "string", "description": "Name of the folder."},
+                "parent_id": {"type": "string", "description": "Parent folder ID (optional)."},
+            },
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "folder_id": {"type": "string"},
+                "folder_name": {"type": "string"},
+                "web_view_link": {"type": "string"},
+            },
+        },
+    ))
+
+    # ── google_drive / upload_file ────────────────────────────────────────────
+    NodeRegistry.register(NodePlugin(
+        service="google_drive",
+        operation="upload_file",
+        node_type="action",
+        label="Upload Google Drive File",
+        icon="UploadCloud",
+        executor_class=GoogleDriveUploadFileExecutor,
+        category="data",
+        tags=["drive", "google", "file", "upload"],
+    ))
+
+    # ── google_drive / list_files ─────────────────────────────────────────────
+    NodeRegistry.register(NodePlugin(
+        service="google_drive",
+        operation="list_files",
+        node_type="action",
+        label="List Google Drive Files",
+        icon="Folder",
+        executor_class=GoogleDriveListFilesExecutor,
+        category="data",
+        tags=["drive", "google", "list", "files"],
+    ))
+
+    # ── google_drive / append_row (generic fallback) ──────────────────────────
+    NodeRegistry.register(NodePlugin(
+        service="google_drive",
+        operation="append_row",
+        node_type="action",
+        label="Google Drive Action / Append",
+        icon="Folder",
+        executor_class=GoogleDriveGenericExecutor,
+        category="data",
+        tags=["drive", "google", "append"],
     ))
 
 

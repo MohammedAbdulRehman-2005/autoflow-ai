@@ -41,12 +41,12 @@ class _SilentUndefined(Undefined):
     def __getitem__(self, key): return _SilentUndefined()
 
 
-# Jinja2 environment — sandboxed, no file loading, loud on missing vars
+# Jinja2 environment — sandboxed, no file loading, silent on missing vars
 _jinja_env = Environment(
     loader=BaseLoader(),
     variable_start_string="{{",
     variable_end_string="}}",
-    undefined=StrictUndefined,
+    undefined=_SilentUndefined,
     autoescape=False,
 )
 

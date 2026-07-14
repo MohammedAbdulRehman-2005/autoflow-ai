@@ -51,6 +51,12 @@ from backend.workflow.engine.executors.hubspot import (
     HubSpotFindRowExecutor,
     HubSpotUpdateRowExecutor,
 )
+from backend.workflow.engine.executors.google_drive import (
+    GoogleDriveCreateFolderExecutor,
+    GoogleDriveUploadFileExecutor,
+    GoogleDriveListFilesExecutor,
+    GoogleDriveGenericExecutor,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -104,6 +110,12 @@ EXECUTOR_REGISTRY: dict[str, BaseExecutor] = {
     "hubspot.append_row":          HubSpotAppendRowExecutor(),
     "hubspot.update_row":          HubSpotUpdateRowExecutor(),
     "hubspot.find_row":            HubSpotFindRowExecutor(),
+
+    # ── Google Drive ────────────────────────────────────────────────────────
+    "google_drive.create_folder":  GoogleDriveCreateFolderExecutor(),
+    "google_drive.upload_file":    GoogleDriveUploadFileExecutor(),
+    "google_drive.list_files":     GoogleDriveListFilesExecutor(),
+    "google_drive.append_row":     GoogleDriveGenericExecutor(),
 }
 
 
@@ -116,6 +128,9 @@ def get_executor(service: str, operation: str) -> Optional[BaseExecutor]:
     """
     key = f"{service}.{operation}"
     executor = EXECUTOR_REGISTRY.get(key)
+    if executor is None and service == "google_drive":
+        logger.info(f"[Registry] Using GoogleDriveGenericExecutor fallback for '{key}'")
+        return GoogleDriveGenericExecutor()
     if executor is None:
         logger.warning(
             f"No executor registered for '{key}'. "
