@@ -23,12 +23,12 @@ const INTEGRATIONS = [
   {
     id: 'google',
     label: 'Google Suite',
-    description: 'Gmail, Google Sheets & Google Calendar — all in one connection.',
+    description: 'Gmail, Google Sheets, Google Calendar & Google Drive — all in one connection.',
     icon: '🔴',
     gradient: 'from-red-500/20 to-yellow-500/10',
     border: 'border-red-500/20',
     glow: 'shadow-red-500/10',
-    services: ['gmail', 'google_sheets', 'google_calendar'],
+    services: ['gmail', 'google_sheets', 'google_calendar', 'google_drive'],
     type: 'oauth',
     badge: 'Most Used',
   },
@@ -310,9 +310,11 @@ export default function SettingsPage() {
       const data = await api.get('/api/v1/integrations/');
       const services = new Set(data.map(i => i.service));
       // Google OAuth covers all Google services
-      if (services.has('gmail')) {
+      if (services.has('gmail') || services.has('google') || services.has('google_drive')) {
+        services.add('gmail');
         services.add('google_sheets');
         services.add('google_calendar');
+        services.add('google_drive');
         services.add('google');
       }
       setConnectedServices(services);

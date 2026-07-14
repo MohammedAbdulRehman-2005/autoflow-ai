@@ -126,8 +126,12 @@ async def oauth_callback(
         )
         return RedirectResponse(url=redirect_url)
     except Exception as e:
+        import logging
+        from urllib.parse import quote
+        logging.getLogger(__name__).error(f"[OAuth Callback Error] Provider: {provider}, Error: {e}", exc_info=True)
+        err_msg = quote(str(e)[:300])
         redirect_url = (
-            f"{FRONTEND_URL}/settings?integration={provider}&status=error&msg={str(e)[:200]}"
+            f"{FRONTEND_URL}/settings?integration={provider}&status=error&msg={err_msg}"
         )
         return RedirectResponse(url=redirect_url)
 

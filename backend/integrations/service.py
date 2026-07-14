@@ -189,7 +189,8 @@ async def exchange_code_for_tokens(
         async with httpx.AsyncClient() as client:
             resp = await client.post(cfg["token_url"], data=token_params)
 
-    resp.raise_for_status()
+    if resp.is_error:
+        raise ValueError(f"OAuth token exchange failed ({resp.status_code}): {resp.text}")
     token_data = resp.json()
 
     # Build credentials dict to store
