@@ -56,7 +56,7 @@ def check_schedule_conflict(
         .filter(
             Workflow.user_id == user_id,
             Workflow.cron_expression == cron_expr,
-            Workflow.status == WorkflowStatus.active.value,
+            Workflow.status == WorkflowStatus.active,
             Workflow.deleted_at.is_(None),
         )
     )

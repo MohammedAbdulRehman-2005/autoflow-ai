@@ -132,7 +132,7 @@ class SchedulerService:
         active_workflows = (
             db.query(Workflow)
             .filter(
-                Workflow.status == WorkflowStatus.active.value,
+                Workflow.status == WorkflowStatus.active,
                 Workflow.cron_expression.isnot(None),
                 Workflow.deleted_at.is_(None),
             )
