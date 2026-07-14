@@ -128,7 +128,8 @@ def build_oauth_url(provider: str, user_id: uuid.UUID) -> str:
 
     client_id = os.getenv(cfg["client_id_env"], "")
     redirect_uri = get_provider_redirect_uri(provider)
-    scopes = " ".join(cfg["scopes"])
+    scope_separator = "," if provider == "slack" else " "
+    scopes = scope_separator.join(cfg["scopes"])
     state = f"{user_id}:{provider}"
 
     params = {
