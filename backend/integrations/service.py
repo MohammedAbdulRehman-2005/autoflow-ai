@@ -307,7 +307,6 @@ def disconnect_integration(user_id: uuid.UUID, service: str, db: Session) -> boo
                 IntegrationService.gmail,
                 IntegrationService.google_sheets,
                 IntegrationService.google_calendar,
-                IntegrationService.google_drive,
             ]),
         ).all()
         if not rows:

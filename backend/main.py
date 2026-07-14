@@ -28,7 +28,7 @@ from backend.intent_parser.router import router as intent_router
 from backend.followup_engine.router import router as followup_router
 from backend.gmail.router import router as gmail_router
 from backend.integrations.router import router as integrations_router
-from backend.database.session import SessionLocal
+from backend.database.session import SessionLocal, engine
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -63,23 +63,18 @@ async def lifespan(app: FastAPI):
     # ── STARTUP ───────────────────────────────────────────────────────────────
     logger.info(f"[Startup] Starting {settings.APP_NAME}...")
 
-    # 0. Reconcile PostgreSQL enum types (ALTER TYPE ADD VALUE IF NOT EXISTS)
-    db_init = SessionLocal()
-    try:
-        if db_init.bind and db_init.bind.dialect.name == "postgresql":
-            for new_val in ("google_drive", "airtable", "twilio"):
-                try:
-                    # Note: ALTER TYPE ADD VALUE cannot run inside a transaction block in older postgres
-                    # but with autocommit or isolation level/check we execute cleanly
-                    connection = db_init.connection().execution_options(isolation_level="AUTOCOMMIT")
-                    connection.execute(text(f"ALTER TYPE integration_service ADD VALUE IF NOT EXISTS '{new_val}'"))
-                except Exception as e_enum:
-                    logger.debug(f"[Startup] Enum reconciliation ({new_val}): {e_enum}")
-            logger.info("[Startup] PostgreSQL enum types reconciled.")
-    except Exception as e:
-        logger.warning(f"[Startup] Database enum check check: {e}")
-    finally:
-        db_init.close()
+    # 0. Reconcile PostgreSQL enum types using direct engine connection in autocommit mode
+    if engine.dialect.name == "postgresql":
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                for new_val in ("google_drive", "airtable", "twilio"):
+                    try:
+                        conn.execute(text(f"ALTER TYPE integration_service ADD VALUE IF NOT EXISTS '{new_val}'"))
+                    except Exception as e_enum:
+                        logger.warning(f"[Startup] Could not add enum value {new_val}: {e_enum}")
+            logger.info("[Startup] PostgreSQL enum types reconciled via engine connection.")
+        except Exception as e:
+            logger.warning(f"[Startup] Database enum check check: {e}")
 
     # 1. Init APScheduler (configure, don't start yet)
     scheduler_service.init()

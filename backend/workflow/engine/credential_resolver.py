@@ -134,7 +134,6 @@ class CredentialResolver:
                         IntegrationService.gmail,
                         IntegrationService.google_sheets,
                         IntegrationService.google_calendar,
-                        IntegrationService.google_drive,
                     ]))
                 else:
                     try:
