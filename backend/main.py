@@ -173,6 +173,11 @@ app.include_router(transcribe_router, prefix="/api/v1")
 # System Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
+@app.api_route("/", methods=["GET", "HEAD"], tags=["System"])
+async def root():
+    return {"name": settings.APP_NAME, "status": "online", "docs": "/docs"}
+
+
 @app.get("/health", tags=["System"])
 async def health_check():
     db_status = False
