@@ -90,6 +90,7 @@ class IntegrationService(str, enum.Enum):
     gmail = "gmail"
     google_sheets = "google_sheets"
     google_calendar = "google_calendar"
+    google_drive = "google_drive"
     whatsapp = "whatsapp"
     slack = "slack"
     notion = "notion"

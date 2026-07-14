@@ -299,6 +299,24 @@ def list_user_integrations(user_id: uuid.UUID, db: Session) -> list[dict]:
 
 def disconnect_integration(user_id: uuid.UUID, service: str, db: Session) -> bool:
     """Mark an integration as inactive (soft delete)."""
+    google_suite = {"google", "gmail", "google_sheets", "google_calendar", "google_drive"}
+    if service in google_suite:
+        rows = db.query(Integration).filter(
+            Integration.user_id == user_id,
+            Integration.service_name.in_([
+                IntegrationService.gmail,
+                IntegrationService.google_sheets,
+                IntegrationService.google_calendar,
+                IntegrationService.google_drive,
+            ]),
+        ).all()
+        if not rows:
+            return False
+        for row in rows:
+            row.is_active = False
+        db.commit()
+        return True
+
     row = db.query(Integration).filter(
         Integration.user_id == user_id,
         Integration.service_name == IntegrationService(service),

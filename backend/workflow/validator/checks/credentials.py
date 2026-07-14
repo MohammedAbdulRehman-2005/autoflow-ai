@@ -74,7 +74,7 @@ def check_credentials(
 
     # Query all integrations for this user in one hit
     connected_services = {
-        row.service_name
+        row.service_name.value if hasattr(row.service_name, "value") else str(row.service_name)
         for row in db.query(Integration.service_name)
         .filter(
             Integration.user_id == user_id,
@@ -82,6 +82,11 @@ def check_credentials(
         )
         .all()
     }
+
+    # Google OAuth covers all Google services
+    google_suite = {"gmail", "google_sheets", "google_calendar", "google_drive", "google"}
+    if connected_services & google_suite:
+        connected_services.update(google_suite)
 
     # Compare needed vs connected
     for service_name, node_ids in services_needed.items():

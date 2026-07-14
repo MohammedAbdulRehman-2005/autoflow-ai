@@ -128,15 +128,24 @@ class CredentialResolver:
                 )
             else:
                 # Sprint 1: resolve by service name (one active cred per service)
-                try:
-                    svc_enum = IntegrationService(service_name)
-                except ValueError:
-                    logger.debug(
-                        "[CredentialResolver] '%s' is not a known IntegrationService — skipping.",
-                        service_name,
-                    )
-                    return None
-                query = query.filter(Integration.service_name == svc_enum)
+                google_suite_names = {"gmail", "google_sheets", "google_calendar", "google_drive", "google"}
+                if service_name in google_suite_names:
+                    query = query.filter(Integration.service_name.in_([
+                        IntegrationService.gmail,
+                        IntegrationService.google_sheets,
+                        IntegrationService.google_calendar,
+                        IntegrationService.google_drive,
+                    ]))
+                else:
+                    try:
+                        svc_enum = IntegrationService(service_name)
+                    except ValueError:
+                        logger.debug(
+                            "[CredentialResolver] '%s' is not a known IntegrationService — skipping.",
+                            service_name,
+                        )
+                        return None
+                    query = query.filter(Integration.service_name == svc_enum)
 
             integration = query.first()
             if not integration:
