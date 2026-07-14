@@ -111,6 +111,15 @@ PROVIDER_CONFIG: dict[str, dict] = {
 APIKEY_PROVIDERS = {"stripe"}
 
 
+def get_provider_redirect_uri(provider: str) -> str:
+    cfg = PROVIDER_CONFIG.get(provider, {})
+    env_var = cfg.get("redirect_uri_env", "")
+    val = os.getenv(env_var, "").strip() if env_var else ""
+    if not val or "railway.app" in val:
+        return f"https://autoflow-ai-1.onrender.com/api/v1/integrations/callback/{provider}"
+    return val
+
+
 def build_oauth_url(provider: str, user_id: uuid.UUID) -> str:
     """Build the OAuth authorization URL for a provider."""
     cfg = PROVIDER_CONFIG.get(provider)
@@ -118,7 +127,7 @@ def build_oauth_url(provider: str, user_id: uuid.UUID) -> str:
         raise ValueError(f"Unknown OAuth provider: {provider}")
 
     client_id = os.getenv(cfg["client_id_env"], "")
-    redirect_uri = os.getenv(cfg["redirect_uri_env"], "")
+    redirect_uri = get_provider_redirect_uri(provider)
     scopes = " ".join(cfg["scopes"])
     state = f"{user_id}:{provider}"
 
@@ -150,7 +159,7 @@ async def exchange_code_for_tokens(
     cfg = PROVIDER_CONFIG[provider]
     client_id = os.getenv(cfg["client_id_env"], "")
     client_secret = os.getenv(cfg["client_secret_env"], "")
-    redirect_uri = os.getenv(cfg["redirect_uri_env"], "")
+    redirect_uri = get_provider_redirect_uri(provider)
 
     # Parse state to get user_id
     user_id_str, _ = state.split(":", 1)

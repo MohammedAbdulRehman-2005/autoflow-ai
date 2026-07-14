@@ -90,7 +90,7 @@ def connect_integration(
         raise HTTPException(
             status_code=503,
             detail=f"{provider.capitalize()} OAuth is not configured on this server yet. "
-                   f"Add {PROVIDER_CONFIG[provider]['client_id_env']} to Railway environment variables.",
+                   f"Add {PROVIDER_CONFIG[provider]['client_id_env']} to Render environment variables.",
         )
 
     url = build_oauth_url(provider, user_id)
