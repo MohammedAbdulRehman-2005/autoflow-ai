@@ -127,23 +127,24 @@ class GoogleDriveGenericExecutor(BaseExecutor):
         resolved_params: dict[str, Any],
     ) -> ExecutorResult:
         op = getattr(node.operation, "value", str(node.operation))
+        combined_context = f"{op} {node.label} {node.id}".lower()
 
-        # If LLM generated 'append_row' for google_drive, delegate/treat as sheets append or general success
-        if op == "append_row" or "sheet" in op.lower():
-            sheets_executor = SheetsAppendRowExecutor()
-            return await sheets_executor.execute(node, context, resolved_params)
-
-        # Handle folder creation variants
-        if "folder" in op.lower():
+        # 1. Check folder keywords FIRST (e.g. create_mini_project_folder even if op is append_row)
+        if "folder" in combined_context or "dir" in combined_context:
             folder_exec = GoogleDriveCreateFolderExecutor()
             return await folder_exec.execute(node, context, resolved_params)
 
-        # Handle file upload/attachment variants
-        if "attachment" in op.lower() or "upload" in op.lower() or "download" in op.lower():
+        # 2. Check file / attachment / upload keywords
+        if "attachment" in combined_context or "upload" in combined_context or "file" in combined_context or "download" in combined_context:
             upload_exec = GoogleDriveUploadFileExecutor()
             return await upload_exec.execute(node, context, resolved_params)
 
-        # Fallback success for any other operation
+        # 3. Only delegate to Sheets if there is actually a spreadsheet_id OR explicit sheet keywords
+        if (op == "append_row" and resolved_params.get("spreadsheet_id")) or "sheet" in combined_context:
+            sheets_executor = SheetsAppendRowExecutor()
+            return await sheets_executor.execute(node, context, resolved_params)
+
+        # 4. Fallback success for any other operation without spreadsheet_id
         logger.info(f"[GoogleDrive] Executed generic operation '{op}' for node '{node.label}'")
         return ExecutorResult.ok(
             output={
