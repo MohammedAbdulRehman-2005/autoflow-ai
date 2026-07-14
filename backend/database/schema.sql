@@ -31,6 +31,7 @@ CREATE TYPE integration_service AS ENUM (
     'gmail',
     'google_sheets',
     'google_calendar',
+    'google_drive',
     'whatsapp',
     'slack',
     'notion',

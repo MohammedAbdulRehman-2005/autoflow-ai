@@ -63,6 +63,24 @@ async def lifespan(app: FastAPI):
     # ── STARTUP ───────────────────────────────────────────────────────────────
     logger.info(f"[Startup] Starting {settings.APP_NAME}...")
 
+    # 0. Reconcile PostgreSQL enum types (ALTER TYPE ADD VALUE IF NOT EXISTS)
+    db_init = SessionLocal()
+    try:
+        if db_init.bind and db_init.bind.dialect.name == "postgresql":
+            for new_val in ("google_drive", "airtable", "twilio"):
+                try:
+                    # Note: ALTER TYPE ADD VALUE cannot run inside a transaction block in older postgres
+                    # but with autocommit or isolation level/check we execute cleanly
+                    connection = db_init.connection().execution_options(isolation_level="AUTOCOMMIT")
+                    connection.execute(text(f"ALTER TYPE integration_service ADD VALUE IF NOT EXISTS '{new_val}'"))
+                except Exception as e_enum:
+                    logger.debug(f"[Startup] Enum reconciliation ({new_val}): {e_enum}")
+            logger.info("[Startup] PostgreSQL enum types reconciled.")
+    except Exception as e:
+        logger.warning(f"[Startup] Database enum check check: {e}")
+    finally:
+        db_init.close()
+
     # 1. Init APScheduler (configure, don't start yet)
     scheduler_service.init()
 
