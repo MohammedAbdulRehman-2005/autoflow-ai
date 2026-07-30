@@ -26,6 +26,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from backend.database.models import (
+    ExecutionEvent,
     RunStatus,
     WorkflowNode,
     WorkflowRun,
@@ -474,6 +475,22 @@ class WorkflowRunner:
     # DATABASE WRITES
     # ─────────────────────────────────────────────────────────────────────────
 
+
+    def _emit_event(self, event_type: str, node_id: Optional[str] = None, payload: Optional[dict] = None) -> None:
+        """Append an event to the durable execution ledger."""
+        if not hasattr(self, "db") or self.db is None:
+            return
+
+        # safely convert UUID string to UUID if needed, but ExecutionEvent accepts standard formats
+        event = ExecutionEvent(
+            run_id=self.run_id,
+            node_id=node_id,
+            event_type=event_type,
+            payload=payload or {}
+        )
+        self.db.add(event)
+        self.db.commit()
+
     def _update_run_status(
         self,
         status: RunStatus,
@@ -501,6 +518,8 @@ class WorkflowRunner:
                 run.error_message = error_message[:2000]  # Clamp to column limit
 
             self.db.commit()
+            self._emit_event(f'NODE_{status.name.upper()}', node_id=node_id, payload={"error": error_message, "duration": duration_ms})
+            self._emit_event(f'RUN_{status.name.upper()}', payload={"error": error_message, "duration": self.context.get("duration_ms")})
         except Exception as e:
             logger.error(f"[Runner] Failed to update run status: {e}")
             try:
@@ -553,6 +572,8 @@ class WorkflowRunner:
             )
             self.db.add(step_log)
             self.db.commit()
+            self._emit_event(f'NODE_{status.name.upper()}', node_id=node_id, payload={"error": error_message, "duration": duration_ms})
+            self._emit_event(f'RUN_{status.name.upper()}', payload={"error": error_message, "duration": self.context.get("duration_ms")})
 
         except Exception as e:
             logger.error(f"[Runner] Failed to write step log for node '{node_dsl_id}': {e}")

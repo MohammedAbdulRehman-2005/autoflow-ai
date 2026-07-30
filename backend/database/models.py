@@ -1,3 +1,4 @@
+from sqlalchemy import BigInteger, DateTime
 """
 AutoFlow AI X — SQLAlchemy ORM Models
 ======================================
@@ -560,3 +561,18 @@ class AuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<AuditLog id={self.id} action={self.action} user_id={self.user_id}>"
+
+
+# MODEL 8: ExecutionEvent
+class ExecutionEvent(Base):
+    __tablename__ = "execution_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    node_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True) # e.g. RUN_STARTED, NODE_STARTED, NODE_COMPLETED, RUN_SUSPENDED
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=True) # Details like state snapshots, errors, output
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<ExecutionEvent id={self.id} run_id={self.run_id} type={self.event_type}>"
