@@ -135,10 +135,10 @@ class NodeExecuteResponse(BaseModel):
     executed_at: datetime
     # Sprint 3.5 — execution telemetry (metadata only; no behavior change)
     retry_count: int = Field(0, description="Number of retry attempts made (0 = succeeded on first attempt).")
-    credential_used: Optional[str] = Field(None, description="Credential ID used for this execution (scrubbed of value).")
+    used_integration_id: Optional[str] = Field(None, description="Credential ID used for this execution (scrubbed of value).")
     cache_hit: bool = Field(False, description="True if result was served from cache (future capability).")
     # AI-specific telemetry (populated only for AI/LLM nodes)
-    llm_tokens: Optional[int] = Field(None, description="Total tokens consumed by LLM (prompt + completion).")
+    llm_usage_count: Optional[int] = Field(None, description="Total tokens consumed by LLM (prompt + completion).")
     estimated_cost: Optional[float] = Field(None, description="Estimated API cost in USD (informational).")
     provider: Optional[str] = Field(None, description="AI provider name e.g. 'groq', 'openai'.")
     model_used: Optional[str] = Field(None, description="Model identifier used for this execution.")
