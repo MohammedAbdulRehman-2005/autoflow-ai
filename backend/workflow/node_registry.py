@@ -563,6 +563,7 @@ def _register_all() -> None:
 
     # ── google_drive / create_folder ──────────────────────────────────────────
     NodeRegistry.register(NodePlugin(
+        doc_url="https://developers.google.com/drive/api/guides/about-sdk",
         service="google_drive",
         operation="create_folder",
         node_type="action",
@@ -590,6 +591,7 @@ def _register_all() -> None:
 
     # ── google_drive / upload_file ────────────────────────────────────────────
     NodeRegistry.register(NodePlugin(
+        doc_url="https://developers.google.com/drive/api/guides/about-sdk",
         service="google_drive",
         operation="upload_file",
         node_type="action",
@@ -602,6 +604,7 @@ def _register_all() -> None:
 
     # ── google_drive / list_files ─────────────────────────────────────────────
     NodeRegistry.register(NodePlugin(
+        doc_url="https://developers.google.com/drive/api/guides/about-sdk",
         service="google_drive",
         operation="list_files",
         node_type="action",
@@ -614,6 +617,7 @@ def _register_all() -> None:
 
     # ── google_drive / append_row (generic fallback) ──────────────────────────
     NodeRegistry.register(NodePlugin(
+        doc_url="https://developers.google.com/drive/api/guides/about-sdk",
         service="google_drive",
         operation="append_row",
         node_type="action",
