@@ -181,6 +181,10 @@ def _register_all() -> None:
         GoogleDriveListFilesExecutor,
         GoogleDriveGenericExecutor,
     )
+    from backend.workflow.engine.executors.google_calendar import (
+        GoogleCalendarCreateEventExecutor,
+        GoogleCalendarListEventsExecutor,
+    )
 
     # â”€â”€ scheduler / cron â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
@@ -626,6 +630,76 @@ def _register_all() -> None:
         executor_class=GoogleDriveGenericExecutor,
         category="data",
         tags=["drive", "google", "append"],
+    ))
+
+    # ── google_calendar / create_event ────────────────────────────────────────
+    NodeRegistry.register(NodePlugin(
+        service="google_calendar",
+        operation="create_event",
+        node_type="action",
+        label="Create Calendar Event",
+        icon="Calendar",
+        executor_class=GoogleCalendarCreateEventExecutor,
+        category="scheduling",
+        tags=["calendar", "google", "event", "meeting", "schedule"],
+        required_scopes=["https://www.googleapis.com/auth/calendar.events"],
+        estimated_latency="medium",
+        parameter_schema={
+            "type": "object",
+            "properties": {
+                "summary":     {"type": "string", "description": "Event title."},
+                "description": {"type": "string", "description": "Event description/notes."},
+                "start_time":  {"type": "string", "description": "ISO 8601 start datetime, e.g. '2024-12-01T10:00:00'."},
+                "end_time":    {"type": "string", "description": "ISO 8601 end datetime."},
+                "location":    {"type": "string", "description": "Event location."},
+                "attendees":   {"type": "string", "description": "Comma-separated attendee emails."},
+                "calendar_id": {"type": "string", "description": "Calendar ID (default: 'primary')."},
+                "timezone":    {"type": "string", "description": "IANA timezone (default: 'UTC')."},
+            },
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "event_id":   {"type": "string"},
+                "event_link": {"type": "string"},
+                "summary":    {"type": "string"},
+                "start":      {"type": "string"},
+                "end":        {"type": "string"},
+                "status":     {"type": "string"},
+            },
+        },
+        default_params={"summary": "", "start_time": "", "end_time": "", "timezone": "UTC"},
+    ))
+
+    # ── google_calendar / list_events ─────────────────────────────────────────
+    NodeRegistry.register(NodePlugin(
+        service="google_calendar",
+        operation="list_events",
+        node_type="action",
+        label="List Calendar Events",
+        icon="CalendarDays",
+        executor_class=GoogleCalendarListEventsExecutor,
+        category="scheduling",
+        tags=["calendar", "google", "events", "list", "schedule"],
+        required_scopes=["https://www.googleapis.com/auth/calendar.readonly"],
+        estimated_latency="medium",
+        parameter_schema={
+            "type": "object",
+            "properties": {
+                "calendar_id":  {"type": "string", "description": "Calendar ID (default: 'primary')."},
+                "max_results":  {"type": "integer", "description": "Max events to return.", "default": 10},
+                "time_min":     {"type": "string", "description": "ISO 8601 lower boundary."},
+                "query":        {"type": "string", "description": "Free-text search query."},
+            },
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "events": {"type": "array"},
+                "count":  {"type": "integer"},
+            },
+        },
+        default_params={"max_results": 10},
     ))
 
 

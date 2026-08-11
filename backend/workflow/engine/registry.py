@@ -57,6 +57,10 @@ from backend.workflow.engine.executors.google_drive import (
     GoogleDriveListFilesExecutor,
     GoogleDriveGenericExecutor,
 )
+from backend.workflow.engine.executors.google_calendar import (
+    GoogleCalendarCreateEventExecutor,
+    GoogleCalendarListEventsExecutor,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -116,6 +120,11 @@ EXECUTOR_REGISTRY: dict[str, BaseExecutor] = {
     "google_drive.upload_file":    GoogleDriveUploadFileExecutor(),
     "google_drive.list_files":     GoogleDriveListFilesExecutor(),
     "google_drive.append_row":     GoogleDriveGenericExecutor(),
+
+    # ── Google Calendar ──────────────────────────────────────────────────────
+    "google_calendar.create_event":  GoogleCalendarCreateEventExecutor(),
+    "google_calendar.list_events":   GoogleCalendarListEventsExecutor(),
+    "google_calendar.get_events":    GoogleCalendarListEventsExecutor(),
 }
 
 

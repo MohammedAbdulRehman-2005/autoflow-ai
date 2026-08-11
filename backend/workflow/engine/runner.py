@@ -500,6 +500,16 @@ class WorkflowRunner:
     ) -> None:
         """Update the WorkflowRun record in the database."""
         try:
+            # Always ensure the session is in a clean state before querying.
+            # If a previous commit failed and was rolled back, the session may
+            # still hold stale pending state that causes SQLAlchemy to evaluate
+            # constraint expressions (e.g. CheckConstraint strings) as Python,
+            # leading to NameError: name 'node_id' is not defined.
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+
             run = self.db.query(WorkflowRun).filter(WorkflowRun.id == self.run_id).first()
             if not run:
                 logger.error(f"[Runner] WorkflowRun {self.run_id} not found in DB.")
@@ -544,6 +554,15 @@ class WorkflowRunner:
         The node_dsl_id is mapped to the DB node UUID via the config_json field.
         """
         try:
+            # Always ensure the session is in a clean state before querying.
+            # If a previous commit failed, the session may hold stale pending state
+            # that causes SQLAlchemy to evaluate CheckConstraint strings as Python,
+            # producing NameError: name 'node_id' is not defined.
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+
             # Find the DB WorkflowNode matching this DSL node ID
             db_node = (
                 self.db.query(WorkflowNode)
@@ -585,6 +604,11 @@ class WorkflowRunner:
     def _get_workflow_id(self) -> Optional[uuid.UUID]:
         """Get the workflow_id from the run record."""
         try:
+            # Use a clean session state to avoid stale-transaction errors.
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
             run = self.db.query(WorkflowRun).filter(WorkflowRun.id == self.run_id).first()
             return run.workflow_id if run else None
         except Exception:
