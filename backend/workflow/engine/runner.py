@@ -76,6 +76,8 @@ class WorkflowRunner:
         self.db = db
         self.user_id = user_id
         self._workflow_id = workflow_id  # Cache to avoid extra DB round-trips
+
+        # Build a fast lookup map: dsl_node_id → WorkflowNodeDSL
         self._node_map: dict[str, WorkflowNodeDSL] = {n.id: n for n in dsl.nodes}
 
         # Build edge lookup: source_id → list of edges
@@ -326,7 +328,6 @@ class WorkflowRunner:
             self.context.set_loop_item(item)
 
             # Execute the body sub-graph for this item
-            # We use a temporary visit count reset guard scoped to loop body
             body_visit_start = self._visit_count
             try:
                 await self._execute_from_node(body_start)
@@ -334,7 +335,6 @@ class WorkflowRunner:
                 logger.error(f"[Loop] Item {i + 1} failed: {e}. Continuing to next item.")
             finally:
                 # Reset visit count back to pre-loop value after each iteration
-                # (body visits don't compound toward the global limit)
                 self._visit_count = body_visit_start
 
         self.context.clear_loop_item()
@@ -474,21 +474,30 @@ class WorkflowRunner:
     # DATABASE WRITES
     # ─────────────────────────────────────────────────────────────────────────
 
-
-    def _emit_event(self, event_type: str, node_id: Optional[str] = None, payload: Optional[dict] = None) -> None:
-        """Append an event to the durable execution ledger."""
-        if not hasattr(self, "db") or self.db is None:
-            return
-
-        # safely convert UUID string to UUID if needed, but ExecutionEvent accepts standard formats
-        event = ExecutionEvent(
-            run_id=self.run_id,
-            node_id=node_id,
-            event_type=event_type,
-            payload=payload or {}
-        )
-        self.db.add(event)
-        self.db.commit()
+    def _emit_event(
+        self,
+        event_type: str,
+        node_id: Optional[str] = None,
+        payload: Optional[dict] = None,
+    ) -> None:
+        """Append an event to the durable execution ledger (non-critical)."""
+        try:
+            if not hasattr(self, "db") or self.db is None:
+                return
+            event = ExecutionEvent(
+                run_id=self.run_id,
+                node_id=node_id,
+                event_type=event_type,
+                payload=payload or {},
+            )
+            self.db.add(event)
+            self.db.commit()
+        except Exception as e:
+            logger.debug(f"[Runner] _emit_event failed (non-critical): {e}")
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
 
     def _update_run_status(
         self,
@@ -499,16 +508,6 @@ class WorkflowRunner:
     ) -> None:
         """Update the WorkflowRun record in the database."""
         try:
-            # Always ensure the session is in a clean state before querying.
-            # If a previous commit failed and was rolled back, the session may
-            # still hold stale pending state that causes SQLAlchemy to evaluate
-            # constraint expressions (e.g. CheckConstraint strings) as Python,
-            # leading to NameError: name 'node_id' is not defined.
-            try:
-                self.db.rollback()
-            except Exception:
-                pass
-
             run = self.db.query(WorkflowRun).filter(WorkflowRun.id == self.run_id).first()
             if not run:
                 logger.error(f"[Runner] WorkflowRun {self.run_id} not found in DB.")
@@ -524,11 +523,14 @@ class WorkflowRunner:
                         (finished_at - run.started_at).total_seconds() * 1000
                     )
             if error_message:
-                run.error_message = error_message[:2000]  # Clamp to column limit
+                run.error_message = error_message[:2000]
 
             self.db.commit()
-            self._emit_event(f'NODE_{status.name.upper()}', node_id=node_id, payload={"error": error_message, "duration": duration_ms})
-            self._emit_event(f'RUN_{status.name.upper()}', payload={"error": error_message, "duration": self.context.get("duration_ms")})
+            # Emit run-level event (non-critical — failures are swallowed)
+            self._emit_event(
+                f"RUN_{status.name.upper()}",
+                payload={"error": error_message},
+            )
         except Exception as e:
             logger.error(f"[Runner] Failed to update run status: {e}")
             try:
@@ -553,15 +555,6 @@ class WorkflowRunner:
         The node_dsl_id is mapped to the DB node UUID via the config_json field.
         """
         try:
-            # Always ensure the session is in a clean state before querying.
-            # If a previous commit failed, the session may hold stale pending state
-            # that causes SQLAlchemy to evaluate CheckConstraint strings as Python,
-            # producing NameError: name 'node_id' is not defined.
-            try:
-                self.db.rollback()
-            except Exception:
-                pass
-
             # Find the DB WorkflowNode matching this DSL node ID
             db_node = (
                 self.db.query(WorkflowNode)
@@ -573,7 +566,9 @@ class WorkflowRunner:
             )
 
             if not db_node:
-                logger.warning(f"[Runner] DB node not found for dsl_id='{node_dsl_id}'. Skipping step log.")
+                logger.warning(
+                    f"[Runner] DB node not found for dsl_id='{node_dsl_id}'. Skipping step log."
+                )
                 return
 
             step_log = WorkflowRunStepLog(
@@ -590,8 +585,12 @@ class WorkflowRunner:
             )
             self.db.add(step_log)
             self.db.commit()
-            self._emit_event(f'NODE_{status.name.upper()}', node_id=node_id, payload={"error": error_message, "duration": duration_ms})
-            self._emit_event(f'RUN_{status.name.upper()}', payload={"error": error_message, "duration": self.context.get("duration_ms")})
+            # Emit node-level event (non-critical)
+            self._emit_event(
+                f"NODE_{status.name.upper()}",
+                node_id=node_dsl_id,
+                payload={"error": error_message, "duration": duration_ms},
+            )
 
         except Exception as e:
             logger.error(f"[Runner] Failed to write step log for node '{node_dsl_id}': {e}")
@@ -605,11 +604,6 @@ class WorkflowRunner:
         if self._workflow_id:
             return self._workflow_id
         try:
-            # Use a clean session state to avoid stale-transaction errors.
-            try:
-                self.db.rollback()
-            except Exception:
-                pass
             run = self.db.query(WorkflowRun).filter(WorkflowRun.id == self.run_id).first()
             if run:
                 self._workflow_id = run.workflow_id
