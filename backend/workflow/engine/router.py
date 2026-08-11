@@ -23,7 +23,7 @@ from backend.database.models import (
     WorkflowRun,
     WorkflowRunStepLog,
 )
-from backend.database.session import get_db
+from backend.database.session import get_db, SessionLocal
 from backend.database.models import User
 from backend.workflow.dsl.schema import WorkflowDSL
 from backend.workflow.engine.runner import WorkflowRunner
@@ -68,24 +68,37 @@ async def _run_workflow_background(
     run_id: uuid.UUID,
     dsl: WorkflowDSL,
     trigger_payload: dict,
-    db: Session,
+    workflow_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> None:
     """
     Background task: instantiate the runner and execute the workflow.
+
+    IMPORTANT: We create a fresh DB session here rather than reusing the one
+    from the HTTP request. FastAPI's get_db() closes the session after the
+    response is returned, so by the time this background task executes the
+    request session is already closed/expired. Using a closed session causes
+    SQLAlchemy to internally evaluate lazy mapper configuration (string
+    foreign_keys, string annotations) which raises:
+        NameError: name 'node_id' is not defined
+
     Any exception is caught and written to the run record by the runner itself.
     """
-    runner = WorkflowRunner(
-        dsl=dsl,
-        run_id=run_id,
-        db=db,
-        trigger_payload=trigger_payload,
-        user_id=user_id,
-    )
+    db = SessionLocal()
     try:
+        runner = WorkflowRunner(
+            dsl=dsl,
+            run_id=run_id,
+            db=db,
+            trigger_payload=trigger_payload,
+            user_id=user_id,
+            workflow_id=workflow_id,
+        )
         await runner.run()
     except Exception as e:
         logger.error(f"[Engine] Background run {run_id} failed: {e}")
+    finally:
+        db.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -166,13 +179,15 @@ async def trigger_run(
     db.add(run)
     db.commit()
 
-    # Fire execution in background
+    # Fire execution in background — pass workflow_id, NOT db.
+    # The background task creates its own fresh session to avoid using
+    # the closed request session (get_db closes it after response is sent).
     background_tasks.add_task(
         _run_workflow_background,
         run_id=run_id,
         dsl=dsl,
         trigger_payload=payload.trigger_payload,
-        db=db,
+        workflow_id=workflow.id,
         user_id=current_user.id,
     )
 

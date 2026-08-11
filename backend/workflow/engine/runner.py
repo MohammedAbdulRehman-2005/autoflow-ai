@@ -75,8 +75,7 @@ class WorkflowRunner:
         self.run_id = run_id
         self.db = db
         self.user_id = user_id
-
-        # Build a fast lookup map: dsl_node_id → WorkflowNodeDSL
+        self._workflow_id = workflow_id  # Cache to avoid extra DB round-trips
         self._node_map: dict[str, WorkflowNodeDSL] = {n.id: n for n in dsl.nodes}
 
         # Build edge lookup: source_id → list of edges
@@ -602,7 +601,9 @@ class WorkflowRunner:
                 pass
 
     def _get_workflow_id(self) -> Optional[uuid.UUID]:
-        """Get the workflow_id from the run record."""
+        """Get the workflow_id — from cache if available, else query the run record."""
+        if self._workflow_id:
+            return self._workflow_id
         try:
             # Use a clean session state to avoid stale-transaction errors.
             try:
@@ -610,6 +611,8 @@ class WorkflowRunner:
             except Exception:
                 pass
             run = self.db.query(WorkflowRun).filter(WorkflowRun.id == self.run_id).first()
-            return run.workflow_id if run else None
+            if run:
+                self._workflow_id = run.workflow_id
+            return self._workflow_id
         except Exception:
             return None
