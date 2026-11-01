@@ -15,7 +15,10 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import redis.asyncio as aioredis
+
 from backend.auth.dependencies import get_current_user
+from backend.core.redis import get_redis
 from backend.database.models import User
 from backend.database.session import get_db
 from backend.integrations.service import (
@@ -24,6 +27,7 @@ from backend.integrations.service import (
     exchange_code_for_tokens,
     list_user_integrations,
     save_apikey_integration,
+    OAuthStateStoreUnavailableError,
     PROVIDER_CONFIG,
     APIKEY_PROVIDERS,
 )
@@ -45,21 +49,42 @@ def get_integrations(
     return list_user_integrations(current_user.id, db)
 
 
-# ---------------------------------------------------------------------------
-# Start OAuth flow
-# ---------------------------------------------------------------------------
+def verify_no_query_token(request: Request):
+    """Strictly disallow passing authentication tokens in query strings."""
+    if "token" in request.query_params:
+        raise HTTPException(
+            status_code=400,
+            detail="Passing authentication tokens in query strings is prohibited. "
+                   "Provide your Bearer token in the Authorization header.",
+        )
 
-@router.get("/{provider}/connect")
-def connect_integration(
+
+@router.api_route(
+    "/{provider}/connect",
+    methods=["GET", "POST"],
+    dependencies=[Depends(verify_no_query_token)],
+)
+async def connect_integration(
     provider: str,
     request: Request,
-    token: str | None = Query(None),
+    current_user: User = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
     db: Session = Depends(get_db),
 ):
     """
-    Redirect the user to the OAuth provider's consent screen.
-    Supported providers: google, slack, notion, hubspot, salesforce
+    Start the OAuth flow for a provider.
+    Authentication MUST be provided via Authorization: Bearer header.
+    Query-string tokens are strictly rejected.
+    Returns the authorization URL for client redirection.
     """
+    # Strict rejection of query-token authentication
+    if "token" in request.query_params:
+        raise HTTPException(
+            status_code=400,
+            detail="Passing authentication tokens in query strings is prohibited. "
+                   "Provide your Bearer token in the Authorization header.",
+        )
+
     if provider in APIKEY_PROVIDERS:
         raise HTTPException(
             status_code=400,
@@ -68,49 +93,23 @@ def connect_integration(
     if provider not in PROVIDER_CONFIG:
         raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
 
-    # Prefer Authorization header over query parameter
-    auth_header = request.headers.get("Authorization")
-    extracted_token = None
-    if auth_header and auth_header.startswith("Bearer "):
-        extracted_token = auth_header[7:].strip()
-    elif token:
-        import logging
-        logging.getLogger(__name__).warning(
-            "Access token passed via URL query parameter on /{provider}/connect. "
-            "Passing tokens in query strings is deprecated for security reasons."
-        )
-        extracted_token = token
-
-    if not extracted_token:
-        raise HTTPException(status_code=401, detail="Authentication token required (via Bearer header or token parameter).")
-
-    try:
-        from backend.auth.utils import decode_token
-        import uuid
-        
-        payload = decode_token(extracted_token)
-        if payload.get("type") != "access":
-            raise ValueError("Not an access token")
-            
-        user_id_str = payload.get("sub")
-        if not user_id_str:
-            raise ValueError("No user ID in token")
-            
-        user_id = uuid.UUID(user_id_str)
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
-
     client_id = os.getenv(PROVIDER_CONFIG[provider]["client_id_env"])
     if not client_id:
         raise HTTPException(
             status_code=503,
             detail=f"{provider.capitalize()} OAuth is not configured on this server yet. "
-                   f"Add {PROVIDER_CONFIG[provider]['client_id_env']} to Render environment variables.",
+                   f"Add {PROVIDER_CONFIG[provider]['client_id_env']} to environment variables.",
         )
 
-    url = build_oauth_url(provider, user_id)
-    return RedirectResponse(url=url)
+    url = await build_oauth_url(provider, current_user.id, redis)
 
+    # If invoked directly via browser navigation with text/html Accept header, redirect.
+    # Otherwise, return JSON response with URL for SPA navigation.
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept and "application/json" not in accept:
+        return RedirectResponse(url=url)
+
+    return {"url": url}
 
 
 # ---------------------------------------------------------------------------
@@ -122,32 +121,37 @@ async def oauth_callback(
     provider: str,
     code: str = Query(...),
     state: str = Query(...),
+    redis: aioredis.Redis = Depends(get_redis),
     db: Session = Depends(get_db),
 ):
     """
-    Google / Slack / Notion / HubSpot / Salesforce redirect back here with ?code=...&state=...
-    We exchange the code for tokens, save them encrypted, then redirect to the frontend.
+    OAuth provider redirects back here with ?code=...&state=...
+    Exchanges code for tokens using single-use Redis-backed state validation.
     """
+    from urllib.parse import quote
+    import logging
+
     try:
         integration = await exchange_code_for_tokens(
             provider=provider,
             code=code,
             state=state,
             db=db,
+            redis=redis,
         )
-        # Redirect to frontend settings page with success message
-        redirect_url = (
-            f"{FRONTEND_URL}/settings?integration={provider}&status=connected"
-        )
+        redirect_url = f"{FRONTEND_URL}/settings?integration={provider}&status=connected"
         return RedirectResponse(url=redirect_url)
     except Exception as e:
-        import logging
-        from urllib.parse import quote
         logging.getLogger(__name__).error(f"[OAuth Callback Error] Provider: {provider}, Error: {e}", exc_info=True)
-        err_msg = quote(str(e)[:300])
-        redirect_url = (
-            f"{FRONTEND_URL}/settings?integration={provider}&status=error&msg={err_msg}"
-        )
+        # Redact raw error details from client redirect query string (P0 #7)
+        if isinstance(e, ValueError):
+            err_msg = quote("Invalid, expired, or previously consumed authentication request.")
+        elif isinstance(e, OAuthStateStoreUnavailableError):
+            err_msg = quote("Authentication state verification service temporarily unavailable.")
+        else:
+            err_msg = quote("Authentication failed with OAuth provider.")
+
+        redirect_url = f"{FRONTEND_URL}/settings?integration={provider}&status=error&msg={err_msg}"
         return RedirectResponse(url=redirect_url)
 
 

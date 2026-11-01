@@ -194,6 +194,14 @@ export default function RecoveryCenterPage() {
         }
       />
 
+      {/* Stage 4 Feature Notice */}
+      <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-medium">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+        <span>
+          <strong>Interface Preview (Stage 4 Target)</strong>: Live self-healing clusters and automated recovery endpoints are scheduled for Stage 4 implementation. Displayed incident data is simulated for interface review.
+        </span>
+      </div>
+
       {/* Main Split Screen */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left: Triage Queue (4 cols) */}

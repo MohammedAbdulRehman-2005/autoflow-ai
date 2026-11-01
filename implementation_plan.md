@@ -1,13 +1,32 @@
-# Deploy AutoFlow AI X to Railway.app
+# AutoFlow AI X: Deployment Architecture & Plan
 
-This document outlines the strategy for deploying the AutoFlow AI X monorepo to production using Railway.app. Railway makes it incredibly easy to deploy monorepos with multiple services (Backend, Frontend, Celery Worker, PostgreSQL, Redis) from a single GitHub repository.
+> [!CAUTION]
+> **DEPRECATION NOTICE: RAILWAY DEPLOYMENT OBSOLETE**
+> The original Railway deployment plan detailed below is **OBSOLETE and DEPRECATED**. AutoFlow AI X production and staging architecture standardizes on **Render (Backend & Background Workers) + Vercel (Frontend SPA) + Supabase (Managed PostgreSQL & Auth)**. Do not deploy backend services or databases to Railway.
 
-## User Review Required
+## Production Topology: Render + Vercel + Supabase
 
-> [!WARNING]
-> Please review this plan carefully. Once approved, I will implement all necessary configuration files, Dockerfiles, and code changes to make the repository "Railway-ready". You will then be able to deploy it with just a few clicks in the Railway dashboard.
+```
++-----------------------------------------------------------------------------------+
+|                                 AutoFlow AI X                                     |
++-----------------------------------------------------------------------------------+
+|  Frontend (Vercel)          --> https://autoflow-ai-ebon.vercel.app               |
+|  Backend API (Render)       --> https://autoflow-ai-backend.onrender.com          |
+|  Database (Supabase)        --> Managed PostgreSQL (pgvector + connection pooler) |
+|  Session / Cache (Upstash)  --> Managed Redis                                     |
++-----------------------------------------------------------------------------------+
+```
 
-## Proposed Changes
+### 1. Target Architecture Overview
+
+1. **Frontend**: Hosted on **Vercel** with global CDN edge routing and automatic HTTPS.
+2. **Backend**: Hosted as a Web Service on **Render** running `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`.
+3. **Database**: **Supabase** Managed PostgreSQL with SSL required (`sslmode=require`), connection pooling via Supavisor (port 6543 for transaction pooling), and daily automated backups.
+4. **Cache & State Store**: **Upstash Redis** or managed Redis instance for single-use OAuth state storage, refresh token session registry, and API rate limiting.
+
+---
+
+### Archive: Legacy Railway Deployment Strategy (Deprecated)
 
 ### 1. Railway Configurations & Dockerfiles
 We will configure Railway to build and run our services directly from the monorepo root.

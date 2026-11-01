@@ -48,6 +48,14 @@ _jinja_env = SandboxedEnvironment(
 
 
 
+def _sanitize_template_for_log(t_str: str) -> str:
+    """Sanitize and truncate template strings to prevent logging sensitive or unbounded expressions."""
+    cleaned = t_str.strip().replace("\n", " ")
+    if len(cleaned) > 60:
+        return cleaned[:57] + "..."
+    return cleaned
+
+
 class ExecutionContext:
     """
     Mutable context that flows through the entire workflow run.
@@ -220,11 +228,13 @@ class ExecutionContext:
 
             return rendered
         except (TemplateError, UndefinedError) as e:
-            logger.error(f"[Runner] Template resolution failed for '{template_str}': {e}")
-            raise TemplateResolutionError(f"Template resolution failed for '{template_str}': {e}") from e
+            snippet = _sanitize_template_for_log(template_str)
+            logger.error(f"[Runner] Template resolution failed for '{snippet}': {e}")
+            raise TemplateResolutionError(f"Template resolution failed for '{snippet}': {e}") from e
         except Exception as e:
-            logger.error(f"[Runner] Unexpected error resolving template '{template_str}': {e}")
-            raise TemplateResolutionError(f"Unexpected error resolving template '{template_str}': {e}") from e
+            snippet = _sanitize_template_for_log(template_str)
+            logger.error(f"[Runner] Unexpected error resolving template '{snippet}': {e}")
+            raise TemplateResolutionError(f"Unexpected error resolving template '{snippet}': {e}") from e
 
     def resolve_params(self, params: dict[str, Any]) -> dict[str, Any]:
         """Convenience method: resolve all template vars in a node's params dict."""

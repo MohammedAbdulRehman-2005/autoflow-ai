@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 import ast
 
+MAX_EXPR_LENGTH = 500
+MAX_AST_NODES = 50
+MAX_AST_DEPTH = 8
+MAX_COLLECTION_SIZE = 20
+
 SAFE_OPERATORS = {
     ast.Eq: lambda a, b: a == b,
     ast.NotEq: lambda a, b: a != b,
@@ -43,18 +48,34 @@ SAFE_BOOLEAN_OPERATORS = {
 }
 
 
+def _calc_ast_depth(node: ast.AST) -> int:
+    """Calculate maximum nesting depth of an AST tree."""
+    children = list(ast.iter_child_nodes(node))
+    if not children:
+        return 1
+    return 1 + max(_calc_ast_depth(c) for c in children)
+
+
 def _safe_eval_ast(node: ast.AST) -> Any:
-    """Recursively evaluate an AST expression with strict operator whitelisting.
+    """Recursively evaluate an AST expression with strict operator whitelisting and resource limits.
     Disallows function calls, attribute access, and arbitrary code execution."""
     if isinstance(node, ast.Expression):
         return _safe_eval_ast(node.body)
     elif isinstance(node, ast.Constant):
+        if not isinstance(node.value, (int, float, str, bool, type(None))):
+            raise ValueError(f"Unsupported constant type: {type(node.value).__name__}")
         return node.value
     elif isinstance(node, ast.List):
+        if len(node.elts) > MAX_COLLECTION_SIZE:
+            raise ValueError(f"Collection size ({len(node.elts)}) exceeds safety limit of {MAX_COLLECTION_SIZE}.")
         return [_safe_eval_ast(elt) for elt in node.elts]
     elif isinstance(node, ast.Tuple):
+        if len(node.elts) > MAX_COLLECTION_SIZE:
+            raise ValueError(f"Collection size ({len(node.elts)}) exceeds safety limit of {MAX_COLLECTION_SIZE}.")
         return tuple(_safe_eval_ast(elt) for elt in node.elts)
     elif isinstance(node, ast.Dict):
+        if len(node.keys) > MAX_COLLECTION_SIZE:
+            raise ValueError(f"Dictionary size ({len(node.keys)}) exceeds safety limit of {MAX_COLLECTION_SIZE}.")
         return {_safe_eval_ast(k): _safe_eval_ast(v) for k, v in zip(node.keys, node.values)}
     elif isinstance(node, ast.Compare):
         left = _safe_eval_ast(node.left)
@@ -63,7 +84,11 @@ def _safe_eval_ast(node: ast.AST) -> Any:
             if not op_fn:
                 raise ValueError(f"Unsupported comparison operator: {type(op).__name__}")
             right = _safe_eval_ast(comparator)
-            if not op_fn(left, right):
+            try:
+                if not op_fn(left, right):
+                    return False
+            except TypeError:
+                # Incompatible comparison types evaluate safely to False
                 return False
             left = right
         return True
@@ -71,7 +96,11 @@ def _safe_eval_ast(node: ast.AST) -> Any:
         op_fn = SAFE_UNARY_OPERATORS.get(type(node.op))
         if not op_fn:
             raise ValueError(f"Unsupported unary operator: {type(node.op).__name__}")
-        return op_fn(_safe_eval_ast(node.operand))
+        operand_val = _safe_eval_ast(node.operand)
+        try:
+            return op_fn(operand_val)
+        except TypeError:
+            return False
     elif isinstance(node, ast.BoolOp):
         op_fn = SAFE_BOOLEAN_OPERATORS.get(type(node.op))
         if not op_fn:
@@ -91,17 +120,43 @@ def _safe_eval_ast(node: ast.AST) -> Any:
 
 
 def evaluate_safe_condition(expr: str) -> bool:
-    """Safely parse and evaluate a boolean condition expression without Python eval()."""
+    """Safely parse and evaluate a boolean condition expression without Python eval()
+    under strict complexity and resource bounds."""
+    if not isinstance(expr, str):
+        return bool(expr)
+
     normalized = expr.strip()
     if not normalized:
         return False
+
+    if len(normalized) > MAX_EXPR_LENGTH:
+        raise ValueError(
+            f"Condition expression exceeds maximum safety length of {MAX_EXPR_LENGTH} characters."
+        )
+
     lower = normalized.lower()
     if lower in ("true", "yes", "1"):
         return True
     elif lower in ("false", "no", "0", "none", "null"):
         return False
 
-    tree = ast.parse(normalized, mode="eval")
+    try:
+        tree = ast.parse(normalized, mode="eval")
+    except SyntaxError as e:
+        raise ValueError(f"Malformed condition syntax: {e}") from e
+
+    node_count = sum(1 for _ in ast.walk(tree))
+    if node_count > MAX_AST_NODES:
+        raise ValueError(
+            f"Condition expression complexity exceeds safety limit ({node_count} nodes > {MAX_AST_NODES} maximum)."
+        )
+
+    depth = _calc_ast_depth(tree)
+    if depth > MAX_AST_DEPTH:
+        raise ValueError(
+            f"Condition expression nesting depth ({depth}) exceeds safety limit of {MAX_AST_DEPTH}."
+        )
+
     result = _safe_eval_ast(tree)
     return bool(result)
 

@@ -49,13 +49,14 @@ A workflow run is modeled as a state machine where transitions are driven by an 
     *   `SUSPENDED` -> `RUNNING` (upon wakeup event)
     *   `RUNNING` -> `FAILED` -> `RETRYING` -> `RUNNING`
 
-### 4.2 Durable Execution (Event Sourcing)
-Instead of updating `workflow_runs.status`, the engine appends events to a ledger (e.g., `execution_events` table). When a node fails or the worker crashes, the scheduler re-reads the ledger, restores the exact state, and resumes.
+### 4.2 Durable Execution (Event Sourcing & Transition to Temporal)
+Instead of updating `workflow_runs.status` in-place, the engine appends state transitions to an immutable event ledger (`execution_events` table).
 
-*Architectural Decision:* **Postgres-backed Event Ledger vs Temporal**
-*   **Why:** Introducing Temporal requires a massive infrastructure shift (Java/Go services, Cassandra). To adhere to "Evolution over Revolution", we implement an append-only event ledger in the existing PostgreSQL database.
-*   **Tradeoffs:** Lower throughput than Temporal; requires custom polling/pub-sub logic.
-*   **Implementation Priority:** Phase 1 (Immediate).
+*RFC Runtime Decision:* **Postgres-backed Event Ledger (Phase 1) → Temporal Orchestration (Phase 2/3)**
+*   **Phase 1 (Transitional Bridge):** Implement an append-only event ledger in PostgreSQL (`execution_events` table) with state hydration on replay. This eliminates in-place mutation corruption and establishes crash-recovery semantics immediately without introducing new infrastructure dependencies during Stage 2 security containment.
+*   **Phase 2/3 (Production Target):** Transition workflow orchestration from custom polling/ledger to native Temporal workflows (`temporalio` SDK). Temporal natively manages durable execution timers, activity retries, distributed state persistence, and worker failover, removing the operational burden of maintaining custom state hydration logic in PostgreSQL.
+*   **Why Two-Phase:** Immediate risk reduction in Phase 1 via zero new operational dependencies, followed by enterprise-grade scalability and determinism via Temporal in Phase 2/3.
+*   **Implementation Priority:** Phase 1 active; Temporal migration scheduled for Stage 3/4.
 
 ### 4.3 Node Lifecycle & Plugin SDK
 Nodes (Executors) must be strictly stateless. The Runtime injects the `ExecutionContext` (inputs, secrets) into the node. The node returns an `ExecutorResult`.

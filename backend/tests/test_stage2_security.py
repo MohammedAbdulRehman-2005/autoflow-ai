@@ -288,22 +288,319 @@ def test_S2_SEC_017_fernet_and_encryption_key_aliases(monkeypatch):
     assert s2.FERNET_KEY == key
 
 
-def test_S2_SEC_018_single_use_oauth_state():
-    """OAuth state tokens must be cryptographically unpredictable and single-use."""
+class FakeAsyncRedis:
+    def __init__(self, store=None):
+        self.store = store if store is not None else {}
+        self.ttls = {}
+
+    async def setex(self, key, ttl, value):
+        self.store[key] = value
+        self.ttls[key] = ttl
+
+    async def get(self, key):
+        return self.store.get(key)
+
+    async def delete(self, key):
+        self.store.pop(key, None)
+
+    async def eval(self, script, numkeys, key):
+        # Emulate atomic GETDEL Lua script
+        return self.store.pop(key, None)
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_018_single_use_oauth_state():
+    """OAuth state tokens must be cryptographically unpredictable, stored in Redis, and single-use."""
+    fake_redis = FakeAsyncRedis()
     test_user = uuid.uuid4()
-    state = generate_oauth_state(test_user, "slack")
-    
+    state = await generate_oauth_state(test_user, "slack", fake_redis)
+
     # State should be a random string, not predictable "user:provider"
     assert ":" not in state
     assert len(state) >= 32
 
     # First consumption succeeds
-    consumed_user = verify_and_consume_oauth_state(state, "slack")
+    consumed_user = await verify_and_consume_oauth_state(state, "slack", fake_redis)
     assert consumed_user == test_user
 
-    # Second consumption must fail (prevent replay attacks)
+    # Second consumption must fail (atomic single-use replay rejection)
     with pytest.raises(ValueError, match="Invalid, expired, or previously consumed"):
-        verify_and_consume_oauth_state(state, "slack")
+        await verify_and_consume_oauth_state(state, "slack", fake_redis)
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_021_oauth_state_expiry():
+    """Expired or missing OAuth state tokens are rejected."""
+    fake_redis = FakeAsyncRedis()
+    with pytest.raises(ValueError, match="Invalid, expired, or previously consumed"):
+        await verify_and_consume_oauth_state("non_existent_or_expired_state", "slack", fake_redis)
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_022_oauth_state_wrong_provider():
+    """OAuth state bound to provider A cannot be consumed with provider B."""
+    fake_redis = FakeAsyncRedis()
+    test_user = uuid.uuid4()
+    state = await generate_oauth_state(test_user, "slack", fake_redis)
+
+    with pytest.raises(ValueError, match="created for provider 'slack', not 'google'"):
+        await verify_and_consume_oauth_state(state, "google", fake_redis)
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_023_oauth_state_multi_instance_and_restart():
+    """OAuth state is multi-instance and restart-safe via shared durable store."""
+    shared_redis_store = {}
+    instance_a_redis = FakeAsyncRedis(store=shared_redis_store)
+    instance_b_redis = FakeAsyncRedis(store=shared_redis_store)
+
+    test_user = uuid.uuid4()
+    state = await generate_oauth_state(test_user, "notion", instance_a_redis)
+
+    # Instance B consumes state created by Instance A
+    consumed_user = await verify_and_consume_oauth_state(state, "notion", instance_b_redis)
+    assert consumed_user == test_user
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_024_oauth_state_controlled_failure_when_redis_unavailable():
+    """When the backing state store is down, raise a typed controlled exception."""
+    from backend.integrations.service import OAuthStateStoreUnavailableError
+
+    failing_redis = AsyncMock()
+    failing_redis.setex.side_effect = ConnectionError("Redis cluster unreachable")
+    failing_redis.eval.side_effect = ConnectionError("Redis cluster unreachable")
+
+    test_user = uuid.uuid4()
+    with pytest.raises(OAuthStateStoreUnavailableError, match="OAuth state storage service is currently unavailable"):
+        await generate_oauth_state(test_user, "slack", failing_redis)
+
+    with pytest.raises(OAuthStateStoreUnavailableError, match="OAuth state storage service is currently unavailable"):
+        await verify_and_consume_oauth_state("valid_token", "slack", failing_redis)
+
+
+def test_S2_SEC_025_connect_endpoint_rejects_query_token(client: TestClient):
+    """Passing tokens via query parameter on /{provider}/connect must be rejected with 400."""
+    resp = client.get("/api/v1/integrations/google/connect?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
+    assert resp.status_code == 400
+    assert "query strings is prohibited" in resp.json()["detail"]
+
+
+def test_S2_SEC_026_connect_endpoint_requires_bearer_auth(client: TestClient):
+    """Initiating OAuth without Authorization header must return 401."""
+    resp = client.get("/api/v1/integrations/google/connect")
+    assert resp.status_code == 401
+
+
+def test_S2_SEC_027_connect_endpoint_returns_json_url_with_bearer(client: TestClient, monkeypatch):
+    """Authenticated connect endpoint returns JSON containing the authorization URL."""
+    from backend.auth.dependencies import get_current_user
+    from backend.auth.utils import create_access_token
+    from backend.core.redis import get_redis
+    test_user_id = uuid.uuid4()
+    mock_user = MagicMock()
+    mock_user.id = test_user_id
+    mock_user.is_active = True
+    mock_user.deleted_at = None
+    fake_redis = FakeAsyncRedis()
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_redis] = lambda: fake_redis
+
+    try:
+        token = create_access_token(test_user_id)
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "mock-google-client-id")
+
+        resp = client.get(
+            "/api/v1/integrations/google/connect",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "url" in data
+        assert "accounts.google.com" in data["url"]
+        assert "state=" in data["url"]
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_redis, None)
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_028_ssrf_pins_actual_connection_destination():
+    """SSRFPinningBackend records the verified IP to which outgoing TCP socket is pinned."""
+    from httpcore._backends.anyio import AnyIOBackend
+    from backend.workflow.engine.executors.http import SSRFPinningBackend
+
+    backend = SSRFPinningBackend()
+    with patch("socket.getaddrinfo") as mock_dns, \
+         patch.object(AnyIOBackend, "connect_tcp", new_callable=AsyncMock) as mock_tcp:
+        # Mock DNS returning a safe public IP
+        mock_dns.return_value = [
+            (2, 1, 6, "", ("93.184.216.34", 443))
+        ]
+        mock_tcp.return_value = MagicMock()
+
+        await backend.connect_tcp("example.com", 443)
+        assert backend.last_connected_ip == "93.184.216.34"
+        # Assert the physical socket call was dispatched to the pinned IP
+        mock_tcp.assert_awaited_once_with(
+            host="93.184.216.34",
+            port=443,
+            timeout=None,
+            local_address=None,
+            socket_options=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_029_ssrf_blocks_loopback_and_metadata_at_connection_time():
+    """SSRFPinningBackend blocks private and metadata destinations at TCP connection time."""
+    from backend.workflow.engine.executors.http import SSRFPinningBackend
+
+    backend = SSRFPinningBackend()
+    with pytest.raises(ValueError, match="prohibited"):
+        await backend.connect_tcp("169.254.169.254", 80)
+
+    with pytest.raises(ValueError, match="Prohibited IP destination"):
+        await backend.connect_tcp("127.0.0.1", 80)
+
+
+def test_S2_SEC_030_ssrf_redacts_query_parameters_in_logs():
+    """_redact_url_for_logs strips query parameters from request URLs."""
+    from backend.workflow.engine.executors.http import _redact_url_for_logs
+
+    url = "https://api.example.com/v1/data?token=secret_abc123&client_secret=super_secret"
+    redacted = _redact_url_for_logs(url)
+    assert "secret_abc123" not in redacted
+    assert "super_secret" not in redacted
+    assert "query=[REDACTED]" in redacted or "[REDACTED]" in redacted
+
+
+def test_S2_SEC_031_ast_evaluator_exceeds_max_length():
+    """Expressions exceeding MAX_EXPR_LENGTH (500 chars) are rejected."""
+    long_expr = "1 == 1 and " * 100
+    with pytest.raises(ValueError, match="exceeds maximum safety length"):
+        evaluate_safe_condition(long_expr)
+
+
+def test_S2_SEC_032_ast_evaluator_exceeds_max_nodes():
+    """Expressions exceeding AST node limits are rejected."""
+    many_nodes = " + ".join(["1"] * 60) + " == 60"
+    with pytest.raises(ValueError, match="complexity exceeds safety limit"):
+        evaluate_safe_condition(many_nodes)
+
+
+def test_S2_SEC_033_ast_evaluator_exceeds_max_depth():
+    """Deeply nested expressions are rejected to prevent recursion attacks."""
+    nested = "not (" * 12 + "True" + ")" * 12
+    with pytest.raises(ValueError, match="nesting depth"):
+        evaluate_safe_condition(nested)
+
+
+def test_S2_SEC_034_ast_evaluator_exceeds_collection_size():
+    """Collections with more than 20 items are rejected."""
+    big_list = str(list(range(25))) + " == []"
+    with pytest.raises(ValueError, match="Collection size"):
+        evaluate_safe_condition(big_list)
+
+
+def test_S2_SEC_035_ast_evaluator_safe_type_mismatch():
+    """Incompatible comparison types evaluate safely to False without crashing."""
+    assert evaluate_safe_condition("'text' < 10") is False
+    assert evaluate_safe_condition("5 > 'abc'") is False
+
+
+def test_S2_SEC_036_production_error_returns_generic_message_and_correlation_id(client: TestClient, monkeypatch):
+    """In production mode, unhandled 500 errors return a generic message and request ID."""
+    from backend.auth.dependencies import get_current_user
+    from backend.core.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_user.is_active = True
+    mock_user.deleted_at = None
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+
+    try:
+        with patch("backend.integrations.router.list_user_integrations") as mock_list:
+            mock_list.side_effect = RuntimeError("Critical database connection failure with table schema_x")
+            from backend.auth.utils import create_access_token
+            token = create_access_token(mock_user.id)
+
+            prod_client = TestClient(app, raise_server_exceptions=False)
+            resp = prod_client.get("/api/v1/integrations/", headers={"Authorization": f"Bearer {token}"})
+            assert resp.status_code == 500
+            data = resp.json()
+            assert "schema_x" not in data["detail"]
+            assert "An internal server error occurred" in data["detail"]
+            assert "request_id" in data
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_S2_SEC_037_correlation_id_middleware_sets_header(client: TestClient):
+    """All HTTP responses include X-Request-ID header."""
+    resp = client.get("/health")
+    assert "x-request-id" in resp.headers
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_038_signup_fails_closed_when_redis_is_down():
+    """If Redis fails during signup, unbacked tokens must not be returned and user creation rolls back."""
+    from backend.auth.service import signup_user
+    from backend.auth.schemas import SignupRequest
+
+    failing_redis = AsyncMock()
+    failing_redis.setex.side_effect = ConnectionError("Redis unavailable")
+    mock_db = MagicMock()
+    mock_db.query().filter().first.return_value = None
+
+    payload = SignupRequest(email="newuser@example.com", password="Password123!", full_name="New User")
+
+    with pytest.raises(RuntimeError, match="session store unavailable"):
+        await signup_user(payload, mock_db, failing_redis)
+
+    mock_db.rollback.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_039_login_fails_closed_when_redis_is_down():
+    """If Redis fails during login, unbacked tokens must not be returned."""
+    from backend.auth.service import login_user
+    from backend.auth.schemas import LoginRequest
+    from backend.auth.utils import hash_password
+    from backend.database.models import User
+
+    failing_redis = AsyncMock()
+    failing_redis.setex.side_effect = ConnectionError("Redis unavailable")
+    mock_db = MagicMock()
+
+    mock_user = MagicMock(spec=User)
+    mock_user.id = uuid.uuid4()
+    mock_user.email = "existing@example.com"
+    mock_user.password_hash = hash_password("ValidPassword123!")
+    mock_user.is_active = True
+    mock_db.query().filter().first.return_value = mock_user
+
+    payload = LoginRequest(email="existing@example.com", password="ValidPassword123!")
+
+    with pytest.raises(RuntimeError, match="session store unavailable"):
+        await login_user(payload, mock_db, failing_redis)
+
+
+@pytest.mark.asyncio
+async def test_S2_SEC_040_revoke_fails_closed_when_redis_is_down():
+    """If Redis fails during token revocation, error is raised explicitly."""
+    from backend.auth.service import logout_user
+    from backend.auth.utils import create_refresh_token
+
+    failing_redis = AsyncMock()
+    failing_redis.delete.side_effect = ConnectionError("Redis unavailable")
+
+    refresh_token = create_refresh_token(uuid.uuid4())
+    with pytest.raises(RuntimeError, match="session store unavailable"):
+        await logout_user(refresh_token, failing_redis)
 
 
 def test_S2_SEC_019_refresh_token_fails_closed_when_redis_is_down():

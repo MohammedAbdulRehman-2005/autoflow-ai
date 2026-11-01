@@ -41,26 +41,31 @@ def _make_redis_key(jti: str) -> str:
 # ---------------------------------------------------------------------------
 
 async def _store_refresh_token(redis: aioredis.Redis, jti: str, user_id: uuid.UUID) -> None:
-    """Persist the refresh token jti → user_id mapping in Redis with TTL."""
+    """Persist the refresh token jti → user_id mapping in Redis with TTL.
+    Fails explicitly if Redis is unavailable to prevent issuing unbacked refresh tokens."""
     try:
         ttl_seconds = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
         await redis.setex(_make_redis_key(jti), ttl_seconds, str(user_id))
     except Exception as e:
-        logger.warning(f"Redis unavailable, could not store refresh token jti {jti}: {e}")
+        logger.error(f"Redis unavailable, could not store refresh token jti {jti}: {e}")
+        raise RuntimeError("Authentication session store unavailable. Refresh token could not be persisted.") from e
 
 
 async def _revoke_refresh_token(redis: aioredis.Redis, jti: str) -> None:
-    """Delete a refresh token from Redis, effectively invalidating it."""
+    """Delete a refresh token from Redis, effectively invalidating it.
+    Fails explicitly if Redis is unavailable so callers know revocation failed."""
     try:
         await redis.delete(_make_redis_key(jti))
     except Exception as e:
-        logger.warning(f"Redis unavailable during revoke jti {jti}: {e}")
+        logger.error(f"Redis unavailable during revoke jti {jti}: {e}")
+        raise RuntimeError("Authentication session store unavailable. Token revocation failed.") from e
 
 
 async def _validate_refresh_token_in_redis(redis: aioredis.Redis, jti: str) -> str | None:
     """
     Return the stored user_id string if the jti exists in Redis,
     or None if the token has been revoked or never existed.
+    Fails closed if Redis is unreachable.
     """
     try:
         return await redis.get(_make_redis_key(jti))
@@ -93,28 +98,35 @@ async def signup_user(
     """
     Register a new user.
     Raises ValueError on duplicate email.
+    Fails explicitly without issuing tokens if session storage fails.
     """
     # 1. Check for existing user
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise ValueError("An account with this email already exists.")
 
-    # 2. Create user
+    # 2. Stage user creation
     new_user = User(
         email=payload.email,
         password_hash=hash_password(payload.password),
         full_name=payload.full_name,
     )
     db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    db.flush()
 
     # 3. Generate tokens
     _, refresh_token, token_response = _build_token_response(new_user.id)
 
-    # 4. Store refresh token jti in Redis
-    payload_decoded = decode_token(refresh_token)
-    await _store_refresh_token(redis, payload_decoded["jti"], new_user.id)
+    # 4. Store refresh token jti in Redis (rolls back if session store fails)
+    try:
+        payload_decoded = decode_token(refresh_token)
+        await _store_refresh_token(redis, payload_decoded["jti"], new_user.id)
+    except Exception:
+        db.rollback()
+        raise
+
+    db.commit()
+    db.refresh(new_user)
 
     return AuthResponse(
         user=UserProfile.model_validate(new_user),

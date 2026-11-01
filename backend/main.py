@@ -3,6 +3,7 @@ AutoFlow AI X — FastAPI Application Entry Point
 """
 import os
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -149,22 +150,46 @@ def _add_cors_headers(request: Request, headers: dict) -> dict:
         headers["Vary"] = "Origin"
     return headers
 
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     headers = _add_cors_headers(request, dict(exc.headers or {}))
+    headers["X-Request-ID"] = request_id
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail},
+        content={"detail": exc.detail, "request_id": request_id},
         headers=headers,
     )
 
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    logger.error(
+        f"[Request-ID: {request_id}] Unhandled exception on {request.method} {request.url.path}: {exc}",
+        exc_info=True,
+    )
     headers = _add_cors_headers(request, {})
+    headers["X-Request-ID"] = request_id
+
+    is_prod = settings.ENVIRONMENT.lower() in ("production", "prod", "release")
+    if is_prod:
+        detail = "An internal server error occurred. Please contact support with the request ID."
+    else:
+        detail = f"Internal Server Error: {str(exc)}"
+
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal Server Error: {str(exc)}"},
+        content={"detail": detail, "request_id": request_id},
         headers=headers,
     )
 

@@ -284,21 +284,6 @@ export default function SettingsPage() {
   const [toast, setToast] = useState(null);
   const [showStripeModal, setShowStripeModal] = useState(false);
 
-  // Show toast from URL param (after OAuth redirect)
-  useEffect(() => {
-    const integration = searchParams.get('integration');
-    const status = searchParams.get('status');
-    const msg = searchParams.get('msg');
-    if (status === 'connected') {
-      showToast(`✅ ${integration?.charAt(0).toUpperCase() + integration?.slice(1)} connected successfully!`, 'success');
-      loadIntegrations();
-    } else if (status === 'error') {
-      showToast(`❌ Failed to connect ${integration}: ${msg || 'Unknown error'}`, 'error');
-    }
-    // Clean the URL
-    if (status) setSearchParams({});
-  }, []);
-
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
@@ -325,6 +310,21 @@ export default function SettingsPage() {
     }
   };
 
+  // Show toast from URL param (after OAuth redirect)
+  useEffect(() => {
+    const integration = searchParams.get('integration');
+    const status = searchParams.get('status');
+    const msg = searchParams.get('msg');
+    if (status === 'connected') {
+      showToast(`✅ ${integration?.charAt(0).toUpperCase() + integration?.slice(1)} connected successfully!`, 'success');
+      loadIntegrations();
+    } else if (status === 'error') {
+      showToast(`❌ Failed to connect ${integration}: ${msg || 'Unknown error'}`, 'error');
+    }
+    // Clean the URL
+    if (status) setSearchParams({});
+  }, []);
+
   useEffect(() => { loadIntegrations(); }, []);
 
   const handleConnect = async (integration) => {
@@ -342,9 +342,17 @@ export default function SettingsPage() {
       return;
     }
     
-    // Clean trailing slash from API_BASE to prevent //api/v1 404s
-    const baseUrl = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
-    window.location.href = `${baseUrl}/api/v1/integrations/${integration.id}/connect?token=${token}`;
+    try {
+      const res = await api.get(`/api/v1/integrations/${integration.id}/connect`);
+      if (res?.url) {
+        window.location.href = res.url;
+      } else {
+        throw new Error('No authorization URL returned by server.');
+      }
+    } catch (e) {
+      showToast(`Failed to initiate ${integration.label} connection: ${e.message}`, 'error');
+      setLoadingId(null);
+    }
   };
 
   const handleDisconnect = async (service) => {
