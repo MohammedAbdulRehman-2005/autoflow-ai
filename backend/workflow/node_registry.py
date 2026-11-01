@@ -643,6 +643,7 @@ def _register_all() -> None:
         category="scheduling",
         tags=["calendar", "google", "event", "meeting", "schedule"],
         required_scopes=["https://www.googleapis.com/auth/calendar.events"],
+        doc_url="https://developers.google.com/calendar/api/v3/reference",
         estimated_latency="medium",
         parameter_schema={
             "type": "object",
@@ -682,6 +683,7 @@ def _register_all() -> None:
         category="scheduling",
         tags=["calendar", "google", "events", "list", "schedule"],
         required_scopes=["https://www.googleapis.com/auth/calendar.readonly"],
+        doc_url="https://developers.google.com/calendar/api/v3/reference",
         estimated_latency="medium",
         parameter_schema={
             "type": "object",

@@ -34,9 +34,10 @@ import NodeInspector from '../components/NodeInspector';
 import AddStepPanel from '../components/AddStepPanel';
 import { dslToFlow } from '../utils/flowLayout';
 import { workflowApi } from '../services/workflowApi';
+import { apiBridge } from '../services/apiBridge';
 import { mutationService } from '../services/mutationService';
 import { eventBus } from '../services/eventBus';
-import { BASE_URL } from '../services/apiClient';
+import { BASE_URL, tokenStore } from '../services/apiClient';
 
 // ── React Flow custom node type map ──────────────────────────────────────────
 const nodeTypes = { workflowNode: WorkflowNode };
@@ -155,10 +156,13 @@ export default function WorkflowBuilderPage() {
       const formData = new FormData();
       formData.append("audio", audioBlob, "recording.webm");
 
+        const token = tokenStore.get();
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const response = await fetch(
           `${BASE_URL}/api/v1/transcribe`,
           {
             method: "POST",
+            headers,
             body: formData,
           }
         );
@@ -317,48 +321,58 @@ const stopRecording = () => {
     return () => window.removeEventListener('workflow:add-step-after', handleAddStepAfterNode);
   }, []);
 
-  // Workflow ID from localStorage (used by Inspector for Execute Step)
-  const currentWorkflowId = localStorage.getItem('current_workflow_id');
+  const queryParams = new URLSearchParams(location.search);
+  const urlWorkflowId = queryParams.get('id');
+  const urlPrompt = queryParams.get('prompt');
 
-useEffect(() => {
-  const workflowId =
-    localStorage.getItem("current_workflow_id");
-
-  if (!workflowId) return;
-
-  workflowApi.get(workflowId)
-    .then((wf) => {
-      // Canonical column name is ai_context_json; fall through to legacy names.
-      const dsl =
-        wf?.ai_context_json ||
-        wf?.dsl ||
-        wf?.dsl_json ||
-        wf?.plan ||
-        wf?.workflow_dsl ||
-        wf?.definition;
-
-      if (dsl) {
-        applyDsl(dsl);
-      }
-    })
-    .catch(console.error);
-}, [applyDsl]);
-
-useEffect(() => {
-const workflowId =localStorage.getItem("current_workflow_id");
-
-if(workflowId) return ;
-  const draft = localStorage.getItem("draft_workflow");
-
-  if (draft) {
-    try {
-      const dsl = JSON.parse(draft);
-      applyDsl(dsl);
-    } catch (err) {
-      console.error("Failed to load draft", err);
+  useEffect(() => {
+    if (urlPrompt) {
+      setChatInput(urlPrompt);
     }
-  }
-}, [applyDsl]);
+  }, [urlPrompt]);
+
+  // Workflow ID from URL or localStorage (used by Inspector for Execute Step)
+  const currentWorkflowId = urlWorkflowId || localStorage.getItem('current_workflow_id');
+
+  useEffect(() => {
+    const workflowId = urlWorkflowId || localStorage.getItem("current_workflow_id");
+    if (!workflowId) return;
+
+    localStorage.setItem("current_workflow_id", workflowId);
+
+    apiBridge.getWorkflow(workflowId)
+      .then((wf) => {
+        // Canonical column name is ai_context_json; fall through to legacy names.
+        const dsl =
+          wf?.dsl ||
+          wf?.ai_context_json ||
+          wf?.dsl_json ||
+          wf?.plan ||
+          wf?.workflow_dsl ||
+          wf?.definition;
+
+        if (dsl) {
+          applyDsl(dsl);
+          if (wf.name) setWorkflowName(wf.name);
+        }
+      })
+      .catch(console.error);
+  }, [urlWorkflowId, applyDsl]);
+
+  useEffect(() => {
+    const workflowId = urlWorkflowId || localStorage.getItem("current_workflow_id");
+    if (workflowId) return;
+    const draft = localStorage.getItem("draft_workflow");
+
+    if (draft) {
+      try {
+        const dsl = JSON.parse(draft);
+        applyDsl(dsl);
+      } catch (err) {
+        console.error("Failed to load draft", err);
+      }
+    }
+  }, [urlWorkflowId, applyDsl]);
 
   
   // ── Handle node drag stop → save position ────────────────────────────────
@@ -426,13 +440,16 @@ if(workflowId) return ;
     applyDsl(newDsl);
 
       try {
+  const token = tokenStore.get();
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
   const response = await fetch(
     `${BASE_URL}/api/v1/ai/parse-intent`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         prompt: fullPrompt,
       }),

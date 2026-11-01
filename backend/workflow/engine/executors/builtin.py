@@ -16,20 +16,107 @@ from backend.workflow.engine.executors.base import BaseExecutor, ExecutorResult
 logger = logging.getLogger(__name__)
 
 
+import ast
+
+SAFE_OPERATORS = {
+    ast.Eq: lambda a, b: a == b,
+    ast.NotEq: lambda a, b: a != b,
+    ast.Lt: lambda a, b: a < b,
+    ast.LtE: lambda a, b: a <= b,
+    ast.Gt: lambda a, b: a > b,
+    ast.GtE: lambda a, b: a >= b,
+    ast.In: lambda a, b: a in b,
+    ast.NotIn: lambda a, b: a not in b,
+    ast.Is: lambda a, b: a is b,
+    ast.IsNot: lambda a, b: a is not b,
+}
+
+SAFE_UNARY_OPERATORS = {
+    ast.Not: lambda a: not a,
+    ast.USub: lambda a: -a,
+    ast.UAdd: lambda a: +a,
+}
+
+SAFE_BOOLEAN_OPERATORS = {
+    ast.And: lambda vals: all(vals),
+    ast.Or: lambda vals: any(vals),
+}
+
+
+def _safe_eval_ast(node: ast.AST) -> Any:
+    """Recursively evaluate an AST expression with strict operator whitelisting.
+    Disallows function calls, attribute access, and arbitrary code execution."""
+    if isinstance(node, ast.Expression):
+        return _safe_eval_ast(node.body)
+    elif isinstance(node, ast.Constant):
+        return node.value
+    elif isinstance(node, ast.List):
+        return [_safe_eval_ast(elt) for elt in node.elts]
+    elif isinstance(node, ast.Tuple):
+        return tuple(_safe_eval_ast(elt) for elt in node.elts)
+    elif isinstance(node, ast.Dict):
+        return {_safe_eval_ast(k): _safe_eval_ast(v) for k, v in zip(node.keys, node.values)}
+    elif isinstance(node, ast.Compare):
+        left = _safe_eval_ast(node.left)
+        for op, comparator in zip(node.ops, node.comparators):
+            op_fn = SAFE_OPERATORS.get(type(op))
+            if not op_fn:
+                raise ValueError(f"Unsupported comparison operator: {type(op).__name__}")
+            right = _safe_eval_ast(comparator)
+            if not op_fn(left, right):
+                return False
+            left = right
+        return True
+    elif isinstance(node, ast.UnaryOp):
+        op_fn = SAFE_UNARY_OPERATORS.get(type(node.op))
+        if not op_fn:
+            raise ValueError(f"Unsupported unary operator: {type(node.op).__name__}")
+        return op_fn(_safe_eval_ast(node.operand))
+    elif isinstance(node, ast.BoolOp):
+        op_fn = SAFE_BOOLEAN_OPERATORS.get(type(node.op))
+        if not op_fn:
+            raise ValueError(f"Unsupported boolean operator: {type(node.op).__name__}")
+        return op_fn([_safe_eval_ast(v) for v in node.values])
+    elif isinstance(node, ast.Name):
+        lower = node.id.lower()
+        if lower in ("true", "yes"):
+            return True
+        elif lower in ("false", "no"):
+            return False
+        elif lower in ("none", "null"):
+            return None
+        raise ValueError(f"Disallowed variable or identifier in condition expression: '{node.id}'")
+    else:
+        raise ValueError(f"Disallowed expression node type: {type(node).__name__}")
+
+
+def evaluate_safe_condition(expr: str) -> bool:
+    """Safely parse and evaluate a boolean condition expression without Python eval()."""
+    normalized = expr.strip()
+    if not normalized:
+        return False
+    lower = normalized.lower()
+    if lower in ("true", "yes", "1"):
+        return True
+    elif lower in ("false", "no", "0", "none", "null"):
+        return False
+
+    tree = ast.parse(normalized, mode="eval")
+    result = _safe_eval_ast(tree)
+    return bool(result)
+
+
 class ConditionBranchExecutor(BaseExecutor):
     """
-    Evaluates a boolean condition expression.
+    Evaluates a boolean condition expression using a safe AST evaluator.
+    Python eval() is strictly disallowed and removed.
 
     Required params:
-        condition : A string expression evaluated as truthy/falsy.
-                   Supports: comparison against template-resolved values.
-                   E.g. the template resolver already resolved {{node.output.count}}
-                   so this executor receives the already-resolved string "5" or True.
+        condition : A string or boolean expression evaluated as truthy/falsy.
+                    Supports: safe comparisons (==, !=, <, <=, >, >=, in, not in, and, or, not).
 
     Returns:
         output: { "result": true|false, "condition": "..." }
-
-    The runner reads result.output["result"] to determine which edge to follow.
     """
 
     async def execute(
@@ -40,25 +127,19 @@ class ConditionBranchExecutor(BaseExecutor):
     ) -> ExecutorResult:
         condition_raw = resolved_params.get("condition", "false")
 
-        # The condition may already be resolved to a bool/int by the context engine
         if isinstance(condition_raw, bool):
             result = condition_raw
         elif isinstance(condition_raw, (int, float)):
             result = bool(condition_raw)
         elif isinstance(condition_raw, str):
-            # Evaluate common string representations
-            normalized = condition_raw.strip().lower()
-            if normalized in ("true", "yes", "1"):
-                result = True
-            elif normalized in ("false", "no", "0", "none", "null", ""):
-                result = False
-            else:
-                # Try safe Python eval for expressions like "5 > 0" or "len([...]) > 0"
-                try:
-                    result = bool(eval(condition_raw, {"__builtins__": {}}, {}))
-                except Exception:
-                    # Non-empty string that isn't a known falsy = truthy
-                    result = len(normalized) > 0
+            try:
+                result = evaluate_safe_condition(condition_raw)
+            except Exception as e:
+                logger.error(f"[Condition] Failed safe evaluation of '{condition_raw}': {e}")
+                return ExecutorResult.fail(
+                    f"Condition expression evaluation failed: {e}",
+                    output={"result": False, "condition": str(condition_raw), "error": str(e)},
+                )
         else:
             result = bool(condition_raw)
 

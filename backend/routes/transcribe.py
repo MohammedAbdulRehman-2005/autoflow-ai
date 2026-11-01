@@ -3,8 +3,11 @@ import shutil
 import logging
 import time
 import re
-from fastapi import APIRouter, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends, Request
 from backend.services.whisper_service import WhisperService
+from backend.auth.dependencies import get_current_user
+from backend.database.models import User
+from backend.core.rate_limit import limiter
 
 logger = logging.getLogger("autoflow-fastapi.transcribe_router")
 
@@ -21,7 +24,12 @@ def sanitize_filename(filename: str) -> str:
     return sanitized_name + ext.lower()
 
 @router.post("/transcribe")
-async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
+@limiter.limit("10/minute")
+async def transcribe_audio_endpoint(
+    request: Request,
+    audio: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     start_time = time.time()
     temp_filepath = None
 

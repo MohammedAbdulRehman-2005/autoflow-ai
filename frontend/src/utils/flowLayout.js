@@ -20,6 +20,8 @@ export const NODE_COLOR_MAP = {
   delay:       { accent: '#64748b', bg: 'from-slate-500/10 to-slate-500/5',   border: 'border-slate-500/30' },
   loop:        { accent: '#10b981', bg: 'from-emerald-500/10 to-emerald-500/5', border: 'border-emerald-500/30' },
   transformer: { accent: '#f97316', bg: 'from-orange-500/10 to-orange-500/5', border: 'border-orange-500/30' },
+  approval:    { accent: '#c084fc', bg: 'from-purple-600/15 to-purple-600/5', border: 'border-purple-500/40' },
+  recovery:    { accent: '#f43f5e', bg: 'from-rose-500/15 to-rose-500/5',     border: 'border-rose-500/40' },
 };
 
 /**
@@ -80,19 +82,23 @@ export function dslToFlow(dsl, savedPositions = {}) {
   });
 
   // ── Build RF edges ────────────────────────────────────────────────────────
-  const rfEdges = dsl.edges.map((e, i) => ({
-    id: `edge-${e.source_id}-${e.target_id}-${i}`,
-    source: e.source_id,
-    target: e.target_id,
-    label: e.label || undefined,
-    type: 'smoothstep',
-    animated: true,
-    style: { stroke: '#475569', strokeWidth: 2 },
-    labelStyle: { fill: '#94a3b8', fontSize: 10, fontWeight: 700 },
-    labelBgStyle: { fill: '#0f172a', fillOpacity: 0.8 },
-    labelBgPadding: [4, 6],
-    labelBgBorderRadius: 4,
-  }));
+  const rfEdges = dsl.edges.map((e, i) => {
+    const src = e.source_id || e.source;
+    const tgt = e.target_id || e.target;
+    return {
+      id: e.id || `edge-${src}-${tgt}-${i}`,
+      source: src,
+      target: tgt,
+      label: e.label || e.condition || undefined,
+      type: 'smoothstep',
+      animated: true,
+      style: { stroke: '#475569', strokeWidth: 2 },
+      labelStyle: { fill: '#94a3b8', fontSize: 10, fontWeight: 700 },
+      labelBgStyle: { fill: '#0f172a', fillOpacity: 0.8 },
+      labelBgPadding: [4, 6],
+      labelBgBorderRadius: 4,
+    };
+  });
 
   // ── Auto-layout nodes that don't have saved positions ────────────────────
   const laidOut = applyDagreLayout(rfNodes, rfEdges);

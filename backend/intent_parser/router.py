@@ -1,13 +1,15 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 
 from backend.intent_parser.schemas import (
     IntentRequest,
     ClarificationResponse
-
 )
 
 from backend.intent_parser.service import parse_user_intent
 from backend.intent_parser.gemini_followup import generate_followup_questions
+from backend.auth.dependencies import get_current_user
+from backend.database.models import User
+from backend.core.rate_limit import limiter
 
 router = APIRouter(
     prefix="/ai",
@@ -19,12 +21,17 @@ router = APIRouter(
     "/parse-intent",
     response_model=ClarificationResponse
 )
+@limiter.limit("20/minute")
+def parse_intent(
+    request: Request,
+    payload: IntentRequest,
+    current_user: User = Depends(get_current_user),
+):
 
-def parse_intent(request : IntentRequest):
+    intent = parse_user_intent(payload.prompt)
 
-    intent = parse_user_intent(request.prompt)
+    questions = generate_followup_questions(payload.prompt, intent)
 
-    questions = generate_followup_questions(request.prompt,intent)
 
     return{
          "workflow":intent,

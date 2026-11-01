@@ -21,7 +21,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import logging
-from jinja2 import BaseLoader, Environment, StrictUndefined, Undefined
+from jinja2 import BaseLoader, StrictUndefined, TemplateError, UndefinedError
+from jinja2.sandbox import SandboxedEnvironment
 
 logger = logging.getLogger(__name__)
 
@@ -31,24 +32,20 @@ except ImportError:
     Session = None  # type: ignore[assignment,misc]
 
 
-
-class _SilentUndefined(Undefined):
-    """Return an empty string instead of raising errors for missing variables.
-    This prevents template resolution from crashing the whole engine on minor typos."""
-    def __str__(self): return ""
-    def __call__(self, *a, **k): return ""
-    def __getattr__(self, name): return _SilentUndefined()
-    def __getitem__(self, key): return _SilentUndefined()
+class TemplateResolutionError(RuntimeError):
+    """Raised when a template variable cannot be resolved or syntax is invalid."""
+    pass
 
 
-# Jinja2 environment — sandboxed, no file loading, silent on missing vars
-_jinja_env = Environment(
+# Jinja2 environment — SandboxedEnvironment defense-in-depth, strict on missing vars, no filesystem access
+_jinja_env = SandboxedEnvironment(
     loader=BaseLoader(),
     variable_start_string="{{",
     variable_end_string="}}",
-    undefined=_SilentUndefined,
-    autoescape=False,
+    undefined=StrictUndefined,
+    autoescape=True,
 )
+
 
 
 class ExecutionContext:
@@ -163,8 +160,8 @@ class ExecutionContext:
             "vars": self._workflow_vars,
             # Run metadata
             "run": {"id": str(self.run_id)},
-            # Environment variables (filtered — only non-secret ones needed in templates)
-            "env": {k: v for k, v in os.environ.items()},
+            # Explicitly empty env mapping — server environment variables are NEVER exposed to templates
+            "env": {},
         }
 
         # Each node's output is accessible by its DSL ID.
@@ -198,7 +195,8 @@ class ExecutionContext:
         return value
 
     def _render_string(self, template_str: str) -> Any:
-        """Render a single template string, returning typed output when possible."""
+        """Render a single template string, returning typed output when possible.
+        Fails explicitly on missing variables or template syntax errors."""
         if "{{" not in template_str:
             return template_str  # Fast path: no template vars
 
@@ -212,19 +210,21 @@ class ExecutionContext:
             stripped = template_str.strip()
             if stripped.startswith("{{") and stripped.endswith("}}"):
                 inner = stripped[2:-2].strip()
-                # Evaluate as Python expression in the jinja context
+                # Evaluate as path in the jinja context
                 try:
                     result = _eval_expression(inner, jinja_vars)
-                    if result is not None and not isinstance(result, _SilentUndefined):
+                    if result is not None:
                         return result
                 except Exception:
                     pass
 
             return rendered
+        except (TemplateError, UndefinedError) as e:
+            logger.error(f"[Runner] Template resolution failed for '{template_str}': {e}")
+            raise TemplateResolutionError(f"Template resolution failed for '{template_str}': {e}") from e
         except Exception as e:
-            # Never crash the engine on template errors — log warning and return original
-            logger.warning(f"[Runner] Template resolution failed for '{template_str}': {e}")
-            return template_str
+            logger.error(f"[Runner] Unexpected error resolving template '{template_str}': {e}")
+            raise TemplateResolutionError(f"Unexpected error resolving template '{template_str}': {e}") from e
 
     def resolve_params(self, params: dict[str, Any]) -> dict[str, Any]:
         """Convenience method: resolve all template vars in a node's params dict."""

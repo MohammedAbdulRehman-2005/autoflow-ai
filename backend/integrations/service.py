@@ -24,10 +24,16 @@ from backend.database.models import Integration, IntegrationService
 # ---------------------------------------------------------------------------
 
 def _get_fernet() -> Fernet:
-    key = os.getenv("ENCRYPTION_KEY")
+    try:
+        from backend.core.config import get_settings
+        settings = get_settings()
+        key = settings.FERNET_KEY or settings.ENCRYPTION_KEY or os.getenv("FERNET_KEY") or os.getenv("ENCRYPTION_KEY")
+    except Exception:
+        key = os.getenv("FERNET_KEY") or os.getenv("ENCRYPTION_KEY")
     if not key:
-        raise RuntimeError("ENCRYPTION_KEY environment variable is not set.")
-    return Fernet(key.encode())
+        raise RuntimeError("Neither FERNET_KEY nor ENCRYPTION_KEY environment variable is configured.")
+    return Fernet(key.encode() if isinstance(key, str) else key)
+
 
 
 def encrypt_credentials(data: dict) -> str:
@@ -122,8 +128,47 @@ def get_provider_redirect_uri(provider: str) -> str:
     return val
 
 
+import secrets
+import time
+
+_OAUTH_STATE_STORE: dict[str, dict] = {}
+OAUTH_STATE_TTL_SECONDS = 600  # 10 minutes
+
+
+def generate_oauth_state(user_id: uuid.UUID, provider: str) -> str:
+    """Generate a single-use, cryptographically secure 256-bit OAuth state token bound to user and provider."""
+    now = time.time()
+    # Expire old states
+    expired = [k for k, v in _OAUTH_STATE_STORE.items() if v["expires_at"] < now]
+    for k in expired:
+        _OAUTH_STATE_STORE.pop(k, None)
+
+    state_token = secrets.token_urlsafe(32)
+    _OAUTH_STATE_STORE[state_token] = {
+        "user_id": user_id,
+        "provider": provider,
+        "expires_at": now + OAUTH_STATE_TTL_SECONDS,
+    }
+    return state_token
+
+
+def verify_and_consume_oauth_state(state_token: str, provider: str) -> uuid.UUID:
+    """Validate and consume the single-use OAuth state token. Prevents replay and CSRF attacks."""
+    now = time.time()
+    state_data = _OAUTH_STATE_STORE.pop(state_token, None)
+    if not state_data:
+        raise ValueError("Invalid, expired, or previously consumed OAuth state token.")
+
+    if state_data["expires_at"] < now:
+        raise ValueError("OAuth state token has expired.")
+    if state_data["provider"] != provider:
+        raise ValueError(f"OAuth state was created for provider '{state_data['provider']}', not '{provider}'.")
+
+    return state_data["user_id"]
+
+
 def build_oauth_url(provider: str, user_id: uuid.UUID) -> str:
-    """Build the OAuth authorization URL for a provider."""
+    """Build the OAuth authorization URL for a provider with an unpredictable state parameter."""
     cfg = PROVIDER_CONFIG.get(provider)
     if not cfg:
         raise ValueError(f"Unknown OAuth provider: {provider}")
@@ -132,7 +177,7 @@ def build_oauth_url(provider: str, user_id: uuid.UUID) -> str:
     redirect_uri = get_provider_redirect_uri(provider)
     scope_separator = "," if provider == "slack" else " "
     scopes = scope_separator.join(cfg["scopes"])
-    state = f"{user_id}:{provider}"
+    state = generate_oauth_state(user_id, provider)
 
     params = {
         "client_id": client_id,
@@ -164,9 +209,8 @@ async def exchange_code_for_tokens(
     client_secret = os.getenv(cfg["client_secret_env"], "")
     redirect_uri = get_provider_redirect_uri(provider)
 
-    # Parse state to get user_id
-    user_id_str, _ = state.split(":", 1)
-    user_id = uuid.UUID(user_id_str)
+    # Validate and consume single-use state token to get user_id
+    user_id = verify_and_consume_oauth_state(state, provider)
 
     # Exchange code → tokens
     token_params = {
