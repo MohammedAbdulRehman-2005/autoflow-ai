@@ -37,7 +37,7 @@ import { workflowApi } from '../services/workflowApi';
 import { apiBridge } from '../services/apiBridge';
 import { mutationService } from '../services/mutationService';
 import { eventBus } from '../services/eventBus';
-import { BASE_URL } from '../services/apiClient';
+import { BASE_URL, tokenStore } from '../services/apiClient';
 
 // ── React Flow custom node type map ──────────────────────────────────────────
 const nodeTypes = { workflowNode: WorkflowNode };
@@ -156,10 +156,13 @@ export default function WorkflowBuilderPage() {
       const formData = new FormData();
       formData.append("audio", audioBlob, "recording.webm");
 
+        const token = tokenStore.get();
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const response = await fetch(
           `${BASE_URL}/api/v1/transcribe`,
           {
             method: "POST",
+            headers,
             body: formData,
           }
         );
@@ -437,13 +440,16 @@ const stopRecording = () => {
     applyDsl(newDsl);
 
       try {
+  const token = tokenStore.get();
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
   const response = await fetch(
     `${BASE_URL}/api/v1/ai/parse-intent`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         prompt: fullPrompt,
       }),
