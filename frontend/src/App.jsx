@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import ProtectedRoute from './routes/ProtectedRoute';
 import { NodeRegistryProvider } from './context/NodeRegistryContext';
 
@@ -9,6 +10,9 @@ import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import DashboardPage from './pages/DashboardPage';
 import WorkflowBuilderPage from './pages/WorkflowBuilderPage';
+import ExecutionMonitorPage from './pages/ExecutionMonitorPage';
+import RecoveryCenterPage from './pages/RecoveryCenterPage';
+import ApprovalCenterPage from './pages/ApprovalCenterPage';
 import MarketplacePage from './pages/MarketplacePage';
 import LogsPage from './pages/LogsPage';
 import SettingsPage from './pages/SettingsPage';
@@ -17,14 +21,11 @@ import SettingsPage from './pages/SettingsPage';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 
-
 // Wrapper for workspace pages (Navbar + Sidebar layout)
 function WorkspaceLayout() {
   const { user } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  
-
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-100 flex font-sans overflow-x-hidden antialiased relative">
@@ -43,8 +44,10 @@ function WorkspaceLayout() {
       />
 
       {/* Workspace Area Container */}
-      <div className="flex-1 flex flex-col min-h-screen relative z-10 transition-all duration-300" style={{ paddingLeft: isCollapsed ? '76px' : '260px' }}>
-        
+      <div
+        className="flex-1 flex flex-col min-h-screen relative z-10 transition-all duration-300"
+        style={{ paddingLeft: isCollapsed ? '76px' : '260px' }}
+      >
         {/* Top Navbar */}
         <Navbar onOpenSettings={() => setShowSettings(true)} />
 
@@ -61,26 +64,38 @@ function WorkspaceLayout() {
 export default function App() {
   return (
     <Router>
-      <AuthProvider>
-        <Routes>
-          {/* Public Auth routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
+      <ToastProvider>
+        <AuthProvider>
+          <Routes>
+            {/* Public Auth routes */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
 
-          {/* Secure workspace layout wrap */}
-          <Route path="/" element={<ProtectedRoute><WorkspaceLayout /></ProtectedRoute>}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="workflow-builder" element={<NodeRegistryProvider><WorkflowBuilderPage /></NodeRegistryProvider>} />
-            <Route path="marketplace" element={<MarketplacePage />} />
-            <Route path="logs" element={<LogsPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-          </Route>
+            {/* Secure workspace layout wrap */}
+            <Route path="/" element={<ProtectedRoute><WorkspaceLayout /></ProtectedRoute>}>
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route
+                path="workflow-builder"
+                element={
+                  <NodeRegistryProvider>
+                    <WorkflowBuilderPage />
+                  </NodeRegistryProvider>
+                }
+              />
+              <Route path="executions" element={<ExecutionMonitorPage />} />
+              <Route path="recovery" element={<RecoveryCenterPage />} />
+              <Route path="approvals" element={<ApprovalCenterPage />} />
+              <Route path="marketplace" element={<MarketplacePage />} />
+              <Route path="logs" element={<LogsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
 
-          {/* Unmatched wildcard route recovery */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </AuthProvider>
+            {/* Unmatched wildcard route recovery */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </AuthProvider>
+      </ToastProvider>
     </Router>
   );
 }

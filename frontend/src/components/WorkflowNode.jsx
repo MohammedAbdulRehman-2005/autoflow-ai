@@ -11,7 +11,7 @@
 
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Plus, Zap, Brain, Server, GitBranch, Clock, RefreshCw, Layers, StickyNote } from 'lucide-react';
+import { Plus, Zap, Brain, Server, GitBranch, Clock, RefreshCw, Layers, StickyNote, PauseCircle, ShieldAlert } from 'lucide-react';
 import './WorkflowNode.css';
 
 const TYPE_ICONS = {
@@ -22,6 +22,8 @@ const TYPE_ICONS = {
   delay:       Clock,
   loop:        RefreshCw,
   transformer: Layers,
+  approval:    PauseCircle,
+  recovery:    ShieldAlert,
 };
 
 function WorkflowNode({ data, selected }) {
