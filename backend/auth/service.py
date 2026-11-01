@@ -184,10 +184,11 @@ async def refresh_access_token(
     jti: str = payload.get("jti", "")
     user_id_str: str = payload.get("sub", "")
 
-    # 3. Validate against Redis (checks it hasn't been revoked)
+    # 3. Validate against Redis (checks it hasn't been revoked; fails closed if revocation status cannot be checked)
     stored_user_id = await _validate_refresh_token_in_redis(redis, jti)
     if stored_user_id == "FALLBACK":
-        stored_user_id = user_id_str
+        logger.error(f"Redis unavailable to check refresh token revocation for jti '{jti}'. Failing closed.")
+        raise ValueError("Authentication service temporarily unavailable to verify token revocation. Please sign in again.")
     elif stored_user_id is None:
         raise ValueError("Refresh token has been revoked.")
 

@@ -4,10 +4,21 @@ import json
 from google import genai
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+def _get_client():
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception:
+        return None
 
 
 def generate_followup_questions(user_prompt: str, workflow: dict):
+    client = _get_client()
+    if not client:
+        return []
+
     prompt = f"""
 You are a Senior Business Analyst.
 

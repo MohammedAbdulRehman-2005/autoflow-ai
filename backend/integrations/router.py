@@ -10,7 +10,7 @@ Endpoints:
 """
 
 import os
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -52,7 +52,8 @@ def get_integrations(
 @router.get("/{provider}/connect")
 def connect_integration(
     provider: str,
-    token: str = Query(...),
+    request: Request,
+    token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """
@@ -67,13 +68,27 @@ def connect_integration(
     if provider not in PROVIDER_CONFIG:
         raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
 
-    # Decode token from query string because browser redirects don't have Authorization headers
+    # Prefer Authorization header over query parameter
+    auth_header = request.headers.get("Authorization")
+    extracted_token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        extracted_token = auth_header[7:].strip()
+    elif token:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Access token passed via URL query parameter on /{provider}/connect. "
+            "Passing tokens in query strings is deprecated for security reasons."
+        )
+        extracted_token = token
+
+    if not extracted_token:
+        raise HTTPException(status_code=401, detail="Authentication token required (via Bearer header or token parameter).")
+
     try:
         from backend.auth.utils import decode_token
-        from jose import JWTError
         import uuid
         
-        payload = decode_token(token)
+        payload = decode_token(extracted_token)
         if payload.get("type") != "access":
             raise ValueError("Not an access token")
             

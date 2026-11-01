@@ -56,3 +56,12 @@ backend/gmail/credentials.json
 
 # Local environment variables
 .env
+
+# Scratch scripts and local database files
+query_db.py
+check_hash.py
+extract_url.py
+*.db
+*.sqlite
+*.sqlite3
+

@@ -1,6 +1,4 @@
-from fastapi import APIRouter
-
-from backend.gmail.service import send_test_email
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter(
     prefix="/gmail",
@@ -10,5 +8,9 @@ router = APIRouter(
 
 @router.post("/test-send")
 def test_send(email: str):
+    """Disabled endpoint. Unauthenticated email sending is prohibited."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="The /test-send endpoint is disabled for security containment. Unauthenticated email sending is not permitted."
+    )
 
-    return send_test_email(email)

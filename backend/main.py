@@ -126,11 +126,27 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+# Parse ALLOWED_ORIGINS string into a list
+allowed_origins = [
+    origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()
+]
+
+import re
+_ALLOWED_ORIGIN_REGEX = re.compile(r"^https://autoflow-ai(-[a-zA-Z0-9_-]+)?\.vercel\.app$|^http://localhost:\d+$")
+
+def _is_origin_allowed(origin: str) -> bool:
+    if not origin:
+        return False
+    if origin in allowed_origins or _ALLOWED_ORIGIN_REGEX.match(origin):
+        return True
+    return False
+
 def _add_cors_headers(request: Request, headers: dict) -> dict:
     origin = request.headers.get("origin")
-    if origin:
+    if origin and _is_origin_allowed(origin):
         headers["Access-Control-Allow-Origin"] = origin
         headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
     return headers
 
 @app.exception_handler(StarletteHTTPException)
@@ -155,17 +171,12 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ─────────────────────────────────────────────────────────────────────────────
 # CORS
 # ─────────────────────────────────────────────────────────────────────────────
-# Parse ALLOWED_ORIGINS string into a list
-allowed_origins = [
-    origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()
-]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:\d+",
+    allow_origin_regex=r"^https://autoflow-ai(-[a-zA-Z0-9_-]+)?\.vercel\.app$|^http://localhost:\d+$",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
 )
 
