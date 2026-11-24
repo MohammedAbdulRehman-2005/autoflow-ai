@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.config import get_settings
 from backend.database.models import Workflow, WorkflowStatus
+from backend.database.session import engine
 from backend.scheduler.jobs import execute_scheduled_workflow
 from backend.scheduler.schemas import (
     CronSchedule,
@@ -81,7 +82,7 @@ class SchedulerService:
         """
         jobstores = {
             "default": SQLAlchemyJobStore(
-                url=settings.DATABASE_URL,
+                engine=engine,
                 tablename="apscheduler_jobs",
             )
         }

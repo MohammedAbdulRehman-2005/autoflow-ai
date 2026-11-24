@@ -47,15 +47,15 @@ platform win32 -- Python 3.11.16, pytest-9.2.0, pluggy-1.7.0 -- D:\autoflow-ai\.
 cachedir: .pytest_cache
 rootdir: D:\autoflow-ai
 plugins: anyio-4.16.0, langsmith-0.8.5, asyncio-1.4.1, cov-7.1.0
-collected 101 items
+collected 121 items
 
-Total Tests Collected : 101
-Passed               : 100
+Total Tests Collected : 121
+Passed               : 120
 Skipped              : 1 (test_S2_016_sprint1_regression_mutation_service: frontend JS test skipped in python)
 Failed               : 0
 Errors               : 0
-Execution Duration   : 3.21s
-================== 100 passed, 1 skipped, 1 warning in 3.21s ==================
+Execution Duration   : 11.41s
+================== 120 passed, 1 skipped, 1 warning in 11.41s ==================
 ```
 
 ### 2.3 Breakdown by Test Module

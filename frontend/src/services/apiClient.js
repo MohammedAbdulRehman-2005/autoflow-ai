@@ -58,7 +58,7 @@ async function request(path, options = {}, retry = true) {
   }
 
   if (!res.ok) {
-    let errMsg = `HTTP ${res.status}`;
+    let errMsg;
     try {
       const body = await res.json();
       if (Array.isArray(body.detail)) {

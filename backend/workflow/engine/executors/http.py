@@ -155,9 +155,91 @@ def validate_url_for_ssrf(url: str, allow_insecure_http: bool = False) -> tuple[
     return clean_hostname, resolved_ips
 
 
+def _redact_url_for_logs(raw_url: str) -> str:
+    """Strip query parameters from URL strings to prevent logging credentials/tokens."""
+    try:
+        parsed = urlsplit(raw_url)
+        if parsed.query:
+            return parsed._replace(query="[REDACTED]").geturl()
+        return raw_url
+    except Exception:
+        return "[MALFORMED_URL]"
+
+
+from httpcore._backends.anyio import AnyIOBackend
+from httpx._config import create_ssl_context
+import httpcore
+
+
+class SSRFPinningBackend(AnyIOBackend):
+    """
+    Ensures outgoing HTTP TCP connections physically connect only to a pre-validated safe IP.
+    Prevents Time-of-Check to Time-of-Use (TOCTOU) DNS rebinding attacks while preserving
+    TLS Server Name Indication (SNI) and full certificate verification for the target hostname.
+    """
+    def __init__(self, allow_insecure: bool = False):
+        self.allow_insecure = allow_insecure
+        self.last_connected_ip: str | None = None
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ):
+        clean_host = host.strip().lower()
+        if clean_host in FORBIDDEN_METADATA_HOSTS:
+            raise ValueError(f"Access to cloud metadata destination '{clean_host}' is strictly prohibited.")
+
+        # Check if direct IP literal
+        try:
+            direct_ip = ipaddress.ip_address(clean_host)
+            if is_ip_blocked(direct_ip):
+                raise ValueError(f"Prohibited IP destination: {direct_ip}")
+            pinned_ip = str(direct_ip)
+        except ValueError as e:
+            if "Prohibited IP" in str(e):
+                raise
+            # Resolve DNS
+            try:
+                addr_info = socket.getaddrinfo(clean_host, port, proto=socket.IPPROTO_TCP)
+            except socket.gaierror as dns_err:
+                raise ValueError(f"DNS resolution failed for hostname '{clean_host}': {dns_err}") from dns_err
+
+            safe_ips: list[str] = []
+            for entry in addr_info:
+                ip_str = entry[4][0]
+                ip_obj = ipaddress.ip_address(ip_str)
+                if is_ip_blocked(ip_obj):
+                    raise ValueError(
+                        f"Destination '{clean_host}' resolved to prohibited IP '{ip_str}' "
+                        f"(private/loopback/metadata range)."
+                    )
+                safe_ips.append(ip_str)
+
+            if not safe_ips:
+                raise ValueError(f"No IP addresses could be resolved for '{clean_host}'.")
+
+            # Pin connection to the first verified safe IP
+            pinned_ip = safe_ips[0]
+
+        self.last_connected_ip = pinned_ip
+        logger.debug(f"[SSRF Pinning] Host '{host}' pinned to verified IP '{pinned_ip}'")
+        return await super().connect_tcp(
+            host=pinned_ip,
+            port=port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+
 class HttpRequestExecutor(BaseExecutor):
     """
-    Makes an outbound HTTP request with SSRF protection, size limits, and bounded timeouts.
+    Makes an outbound HTTP request with connection-pinned SSRF protection,
+    size limits, and bounded timeouts.
 
     Required params:
         url    : Target URL (HTTPS only unless ALLOW_INSECURE_HTTP is enabled)
@@ -191,12 +273,14 @@ class HttpRequestExecutor(BaseExecutor):
         if not url:
             return ExecutorResult.fail("'url' is required for http_request.")
 
+        redacted_url = _redact_url_for_logs(url)
+
         # 1. SSRF Pre-flight validation
         allow_insecure = os.getenv("ALLOW_INSECURE_HTTP", "false").lower() in ("true", "1")
         try:
             validate_url_for_ssrf(url, allow_insecure_http=allow_insecure)
         except ValueError as e:
-            logger.warning(f"[HTTP] Blocked SSRF attempt: {e} (URL: {url})")
+            logger.warning(f"[HTTP] Blocked SSRF attempt: {e} (URL: {redacted_url})")
             return ExecutorResult.fail(f"SSRF Protection blocked request: {e}")
 
         # 2. Header sanitization: strip spoofed internal routing headers
@@ -205,10 +289,20 @@ class HttpRequestExecutor(BaseExecutor):
             if k.lower() not in DANGEROUS_FORWARD_HEADERS
         }
 
-        logger.info(f"[HTTP] {method} {url}")
+        logger.info(f"[HTTP] {method} {redacted_url}")
 
-        # 3. Execute request with disabled redirects (redirects re-check SSRF boundary)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        # 3. Connection Pinning Transport to eliminate DNS rebinding TOCTOU race
+        pinning_backend = SSRFPinningBackend(allow_insecure=allow_insecure)
+        ssl_context = create_ssl_context()
+        transport = httpx.AsyncHTTPTransport()
+        transport._pool = httpcore.AsyncConnectionPool(
+            ssl_context=ssl_context,
+            network_backend=pinning_backend,
+            http1=True,
+            http2=False,
+        )
+
+        async with httpx.AsyncClient(transport=transport, timeout=timeout, follow_redirects=False) as client:
             try:
                 kwargs: dict[str, Any] = {
                     "headers": sanitized_headers,
@@ -224,9 +318,9 @@ class HttpRequestExecutor(BaseExecutor):
                     # Guard against redirect-based SSRF
                     if response.is_redirect:
                         location = response.headers.get("location", "")
-                        logger.warning(f"[HTTP] Denied redirect from {url} to {location}")
+                        logger.warning(f"[HTTP] Denied redirect from {redacted_url} to {location}")
                         return ExecutorResult.fail(
-                            f"HTTP Redirects are disabled for security containment (target redirected to: {location})"
+                            f"HTTP Redirects are disabled for security containment (target attempted redirect)"
                         )
 
                     # Stream response with maximum payload size cap
@@ -244,8 +338,9 @@ class HttpRequestExecutor(BaseExecutor):
                     status_code = response.status_code
 
                 if status_code >= 400:
-                    msg = f"HTTP {status_code} from {url}: {raw_body[:300]}"
-                    logger.warning(f"[HTTP] {msg}")
+                    # P0 #7: Do not dump sensitive provider response bodies in workflow error messages
+                    msg = f"HTTP {status_code} received from endpoint."
+                    logger.warning(f"[HTTP] {msg} (URL: {redacted_url})")
                     return ExecutorResult.fail(msg, output={"status_code": status_code})
 
                 # Parse JSON if possible
@@ -254,23 +349,24 @@ class HttpRequestExecutor(BaseExecutor):
                 except Exception:
                     response_data = raw_body
 
-                logger.info(f"[HTTP] {method} {url} -> {status_code}")
+                logger.info(f"[HTTP] {method} {redacted_url} -> {status_code}")
 
                 return ExecutorResult.ok(
                     output={
                         "status_code": status_code,
                         "response": response_data,
-                        "url": url,
+                        "url": redacted_url,
                         "bytes": total_bytes,
+                        "connected_ip": pinning_backend.last_connected_ip,
                     }
                 )
 
             except httpx.HTTPStatusError as e:
-                msg = f"HTTP {e.response.status_code} from {url}: {e.response.text[:300]}"
-                logger.warning(f"[HTTP] {msg}")
+                msg = f"HTTP {e.response.status_code} error from endpoint."
+                logger.warning(f"[HTTP] {msg} (URL: {redacted_url})")
                 return ExecutorResult.fail(msg, output={"status_code": e.response.status_code})
 
-            except httpx.RequestError as e:
-                msg = f"Request error for {url}: {e}"
-                logger.error(f"[HTTP] {msg}")
+            except (httpx.RequestError, ValueError) as e:
+                msg = f"Request blocked or network error: {e}"
+                logger.error(f"[HTTP] Request error for {redacted_url}: {e}")
                 return ExecutorResult.fail(msg)
