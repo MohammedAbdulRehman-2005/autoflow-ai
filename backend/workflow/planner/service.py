@@ -28,6 +28,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from backend.core.config import get_settings
+from backend.core.llm import DEFAULT_GROQ_MODEL, groq_chat_completion
 from backend.database.models import (
     Workflow,
     WorkflowEdge,
@@ -49,7 +50,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 MAX_RETRIES = 2          # Max additional attempts after the first failure
-GROQ_MODEL  = "llama-3.3-70b-versatile"
+GROQ_MODEL  = DEFAULT_GROQ_MODEL
 GROQ_MAX_TOKENS = 4096
 GROQ_TEMPERATURE = 0.2   # Low temperature = more deterministic, fewer hallucinations
 
@@ -214,13 +215,14 @@ def _call_groq(
     groq_client: Groq,
     messages: list[dict],
 ) -> str:
-    """Make a single Groq API call and return the raw text content."""
-    response = groq_client.chat.completions.create(
+    """Make a Groq API call with automatic model fallback and return the raw text content."""
+    response = groq_chat_completion(
+        client=groq_client,
         model=GROQ_MODEL,
         messages=messages,
         max_tokens=GROQ_MAX_TOKENS,
         temperature=GROQ_TEMPERATURE,
-        response_format={"type": "json_object"},  # Force JSON output mode
+        response_format={"type": "json_object"},  # Force JSON output mode where supported
     )
     return response.choices[0].message.content
 
@@ -313,7 +315,7 @@ async def plan_workflow(
         attempt += 1
 
         # ── LLM Call ────────────────────────────────────────────────────────
-        if attempt > 1:
+        if attempt > 1 and last_raw and last_errors:
             # Retry: inject the error feedback into the conversation
             logger.warning(f"Retrying Groq call (attempt {attempt}) for workflow '{workflow_name}'")
             messages.append({"role": "assistant", "content": last_raw})

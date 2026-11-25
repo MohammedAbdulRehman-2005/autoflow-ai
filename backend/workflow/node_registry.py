@@ -445,9 +445,17 @@ def _register_all() -> None:
                 },
                 "model": {
                     "type": "string",
-                    "default": "llama-3.3-70b-versatile",
+                    "default": "openai/gpt-oss-120b",
                     "description": "Groq model name.",
-                    "enum": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
+                    "enum": [
+                        "openai/gpt-oss-120b",
+                        "qwen/qwen3.8-27b",
+                        "openai/gpt-oss-20b",
+                        "llama-3.3-70b-versatile",
+                        "llama-3.1-8b-instant",
+                        "mixtral-8x7b-32768",
+                        "gemma2-9b-it",
+                    ],
                     "ui": {"widget": "select", "helpText": "Choose the Groq model to use."},
                 },
                 "max_tokens":   {
@@ -477,7 +485,7 @@ def _register_all() -> None:
             "required": ["text", "model"],
         },
         default_params={
-            "model": "llama-3.3-70b-versatile",
+            "model": "openai/gpt-oss-120b",
             "max_tokens": 1024,
             "temperature": 0.7,
         },

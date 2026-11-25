@@ -11,6 +11,7 @@ from typing import Any
 from groq import Groq
 
 from backend.core.config import get_settings
+from backend.core.llm import DEFAULT_GROQ_MODEL, groq_chat_completion, resolve_groq_model
 from backend.workflow.dsl.schema import WorkflowNodeDSL
 from backend.workflow.engine.context import ExecutionContext
 from backend.workflow.engine.executors.base import BaseExecutor, ExecutorResult
@@ -18,7 +19,7 @@ from backend.workflow.engine.executors.base import BaseExecutor, ExecutorResult
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = DEFAULT_GROQ_MODEL
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TEMPERATURE = 0.7
 
@@ -45,7 +46,7 @@ class LLMGenerateExecutor(BaseExecutor):
     ) -> ExecutorResult:
         user_prompt = resolved_params.get("user_prompt", "")
         system_prompt = resolved_params.get("system_prompt", "You are a helpful assistant.")
-        model = resolved_params.get("model", DEFAULT_MODEL)
+        model = resolve_groq_model(resolved_params.get("model", DEFAULT_MODEL))
         max_tokens = int(resolved_params.get("max_tokens", DEFAULT_MAX_TOKENS))
         temperature = float(resolved_params.get("temperature", DEFAULT_TEMPERATURE))
 
@@ -56,7 +57,8 @@ class LLMGenerateExecutor(BaseExecutor):
 
         client = Groq(api_key=settings.GROQ_API_KEY)
 
-        response = client.chat.completions.create(
+        response = groq_chat_completion(
+            client=client,
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -102,7 +104,7 @@ class LLMClassifyExecutor(BaseExecutor):
     ) -> ExecutorResult:
         text = resolved_params.get("text", "")
         labels = resolved_params.get("labels", [])
-        model = resolved_params.get("model", DEFAULT_MODEL)
+        model = resolve_groq_model(resolved_params.get("model", DEFAULT_MODEL))
 
         if not text or not labels:
             return ExecutorResult.fail("'text' and 'labels' are required for llm_classify.")
@@ -114,7 +116,8 @@ class LLMClassifyExecutor(BaseExecutor):
         )
 
         client = Groq(api_key=settings.GROQ_API_KEY)
-        response = client.chat.completions.create(
+        response = groq_chat_completion(
+            client=client,
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -154,7 +157,7 @@ class LLMExtractExecutor(BaseExecutor):
 
         text = resolved_params.get("text", "")
         fields = resolved_params.get("fields", [])
-        model = resolved_params.get("model", DEFAULT_MODEL)
+        model = resolve_groq_model(resolved_params.get("model", DEFAULT_MODEL))
 
         if not text or not fields:
             return ExecutorResult.fail("'text' and 'fields' are required for llm_extract.")
@@ -168,7 +171,8 @@ class LLMExtractExecutor(BaseExecutor):
         )
 
         client = Groq(api_key=settings.GROQ_API_KEY)
-        response = client.chat.completions.create(
+        response = groq_chat_completion(
+            client=client,
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
 
     # ── External APIs / AI ────────────────────────────────────────────────────
     GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
 

@@ -162,11 +162,13 @@ async def http_request_tool(
 # AI reasoning tools (call Groq LLM directly)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _groq_chat(system: str, user: str, model: str = "llama-3.3-70b-versatile") -> str:
+async def _groq_chat(system: str, user: str, model: str = "openai/gpt-oss-120b") -> str:
     """Minimal Groq chat helper for tool-internal LLM calls."""
     from groq import AsyncGroq
+    from backend.core.llm import async_groq_chat_completion
     client = AsyncGroq(api_key=_GROQ_API_KEY)
-    resp = await client.chat.completions.create(
+    resp = await async_groq_chat_completion(
+        client=client,
         model=model,
         messages=[
             {"role": "system",  "content": system},

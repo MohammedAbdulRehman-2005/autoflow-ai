@@ -191,7 +191,7 @@ WEEKLY_REPORT_DSL = WorkflowDSL(
             operation=OperationType.llm_generate,
             label="AI: Generate Executive Summary",
             params={
-                "model": "llama-3.3-70b-versatile",
+                "model": "openai/gpt-oss-120b",
                 "system_prompt": (
                     "You are a business analyst. Given weekly KPI data, "
                     "write a concise 3-paragraph executive summary highlighting "

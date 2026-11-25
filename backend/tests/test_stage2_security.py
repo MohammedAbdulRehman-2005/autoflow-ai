@@ -629,3 +629,31 @@ def test_S2_SEC_020_cors_rejects_arbitrary_untrusted_origins(client: TestClient)
     )
     allow_origin = resp.headers.get("access-control-allow-origin")
     assert allow_origin != "https://malicious-attacker.vercel.app"
+
+
+def test_S2_SEC_041_groq_model_deprecation_remap_and_fallback():
+    """Deprecated Groq models (llama-3.3-70b-versatile) are remapped and 404 model_not_found falls back automatically."""
+    from backend.core.llm import DEFAULT_GROQ_MODEL, groq_chat_completion, resolve_groq_model
+
+    assert resolve_groq_model("llama-3.3-70b-versatile") == DEFAULT_GROQ_MODEL
+    assert resolve_groq_model("llama-3.1-8b-instant") == DEFAULT_GROQ_MODEL
+
+    mock_client = MagicMock()
+    mock_success_resp = MagicMock()
+    mock_success_resp.choices = [MagicMock(message=MagicMock(content='{"ok": true}'))]
+
+    def side_effect(**kwargs):
+        if kwargs.get("model") == DEFAULT_GROQ_MODEL:
+            raise RuntimeError("Error code: 404 - {'error': {'code': 'model_not_found', 'message': 'does not exist'}}")
+        return mock_success_resp
+
+    mock_client.chat.completions.create.side_effect = side_effect
+
+    resp = groq_chat_completion(
+        client=mock_client,
+        messages=[{"role": "user", "content": "plan workflow"}],
+        model="llama-3.3-70b-versatile",
+    )
+    assert resp.choices[0].message.content == '{"ok": true}'
+    assert mock_client.chat.completions.create.call_count == 2
+

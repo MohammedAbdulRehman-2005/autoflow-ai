@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 from groq import Groq
 
 from backend.core.config import get_settings
+from backend.core.llm import DEFAULT_GROQ_MODEL, groq_chat_completion
 from backend.workflow.capability_registry import CapabilityRegistry
 from backend.workflow.node_registry import NodeRegistry
 from backend.workflow.planner.schemas import (
@@ -36,7 +37,7 @@ from backend.workflow.planner.schemas import (
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = DEFAULT_GROQ_MODEL
 GROQ_MAX_TOKENS = 512          # We only need a small JSON fragment
 GROQ_TEMPERATURE = 0.1         # Very low — deterministic node selection
 CAPABILITY_CONFIDENCE_THRESHOLD = 0.40  # Minimum to prefer registry over LLM
@@ -351,7 +352,8 @@ async def _llm_select_plugin(user_intent: str, current_dsl: Dict[str, Any]) -> O
 
     try:
         client = Groq(api_key=settings.GROQ_API_KEY)
-        response = client.chat.completions.create(
+        response = groq_chat_completion(
+            client=client,
             model=GROQ_MODEL,
             messages=[
                 {"role": "system", "content": system},

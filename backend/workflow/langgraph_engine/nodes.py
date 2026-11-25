@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_groq import ChatGroq
 
+from backend.core.llm import DEFAULT_GROQ_MODEL, resolve_groq_model
 from backend.workflow.langgraph_engine.state import StepRecord, WorkflowState, utcnow_iso
 from backend.workflow.langgraph_engine.tools import (
     ALL_TOOLS,
@@ -46,7 +47,7 @@ from backend.workflow.langgraph_engine.tools import (
 logger = logging.getLogger(__name__)
 
 _GROQ_API_KEY    = os.environ.get("GROQ_API_KEY", "")
-_DEFAULT_MODEL   = "llama-3.3-70b-versatile"
+_DEFAULT_MODEL   = DEFAULT_GROQ_MODEL
 _MAX_TOOL_ROUNDS = 5    # Max ReAct reasoning rounds per agent node
 
 
@@ -54,7 +55,7 @@ def _make_llm(model: str = _DEFAULT_MODEL, temperature: float = 0.1) -> ChatGroq
     """Build a ChatGroq LLM instance bound with all tools."""
     return ChatGroq(
         api_key=_GROQ_API_KEY,
-        model=model,
+        model=resolve_groq_model(model),
         temperature=temperature,
     )
 

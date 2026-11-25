@@ -222,7 +222,7 @@ MANDATORY RULES — VIOLATIONS WILL CAUSE REJECTION
 10. Do not invent services or operations not listed in the spec above.
 11. ALWAYS fill ALL required params — NEVER leave them empty or missing:
     - llm_generate: MUST have both "system_prompt" and "user_prompt" as non-empty strings.
-      Example: {{"model": "llama-3.3-70b-versatile", "system_prompt": "You are a helpful assistant.",
+      Example: {{"model": "openai/gpt-oss-120b", "system_prompt": "You are a helpful assistant.",
                  "user_prompt": "Summarize the following emails: {{{{read_emails.output.emails}}}}",
                  "max_tokens": 500, "temperature": 0.7}}
     - send_email: MUST have "to", "subject", and "body" as non-empty strings.
