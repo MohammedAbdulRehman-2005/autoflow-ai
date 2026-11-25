@@ -38,9 +38,8 @@ DEPRECATED_GROQ_MODELS = {
 
 GROQ_FALLBACK_CHAIN = [
     "openai/gpt-oss-120b",
-    "qwen/qwen3.8-27b",
-    "openai/gpt-oss-20b",
     "meta-llama/llama-4-scout-17b-16e-instruct",
+    "openai/gpt-oss-20b",
     "meta-llama/llama-4-maverick-17b-128e-instruct",
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
@@ -162,6 +161,46 @@ def _discover_account_chat_models(client: Groq) -> list[str]:
         return []
 
 
+def gemini_json_completion(
+    messages: list[dict[str, Any]],
+    max_tokens: int = 8192,
+    temperature: float = 0.2,
+) -> Optional[str]:
+    """
+    Generate JSON with Gemini (native JSON mime mode, large output budget, no Groq TPM limits).
+    Returns None if GEMINI_API_KEY is unset or the call fails, so callers can fall back to Groq.
+    """
+    settings = get_settings()
+    if not settings.GEMINI_API_KEY:
+        return None
+    try:
+        from google import genai
+        from google.genai import types
+
+        system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+        convo = "\n\n".join(
+            f"[{m.get('role', 'user').upper()}]\n{m.get('content', '')}"
+            for m in messages
+            if m.get("role") != "system"
+        )
+        gclient = genai.Client(api_key=settings.GEMINI_API_KEY)
+        resp = gclient.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=convo,
+            config=types.GenerateContentConfig(
+                system_instruction="\n\n".join(system_parts) or None,
+                response_mime_type="application/json",
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            ),
+        )
+        text = (resp.text or "").strip()
+        return text or None
+    except Exception as exc:
+        logger.warning("[LLM] Gemini JSON completion failed: %s", exc)
+        return None
+
+
 def _try_gemini_fallback(messages: list[dict[str, Any]]) -> Optional[_FallbackCompletionResponse]:
     """Last-resort fallback to Google Gemini if GEMINI_API_KEY is configured."""
     settings = get_settings()
@@ -234,6 +273,9 @@ def groq_chat_completion(
         # and burn double TPM quota on retry; omit response_format for them and rely on _extract_json.
         if response_format is not None and not _is_reasoning_model(candidate_model):
             kwargs["response_format"] = response_format
+        # gpt-oss reasoning tokens count against max_tokens; keep reasoning minimal so the JSON isn't truncated/empty.
+        if "gpt-oss" in candidate_model.lower():
+            kwargs["reasoning_effort"] = "low"
 
         try:
             return fast_client.chat.completions.create(**kwargs)

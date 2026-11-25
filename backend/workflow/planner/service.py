@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from backend.core.config import get_settings
-from backend.core.llm import DEFAULT_GROQ_MODEL, groq_chat_completion
+from backend.core.llm import DEFAULT_GROQ_MODEL, gemini_json_completion, groq_chat_completion
 from backend.database.models import (
     Workflow,
     WorkflowEdge,
@@ -51,7 +51,7 @@ settings = get_settings()
 
 MAX_RETRIES = 2          # Max additional attempts after the first failure
 GROQ_MODEL  = DEFAULT_GROQ_MODEL
-GROQ_MAX_TOKENS = 2000   # Fits comfortably within Groq free-tier 8,000 TPM budget
+GROQ_MAX_TOKENS = 3500   # Reasoning models spend tokens thinking; 3500 + ~3000 prompt stays under 8,000 TPM
 GROQ_TEMPERATURE = 0.2   # Low temperature = more deterministic, fewer hallucinations
 
 
@@ -215,7 +215,10 @@ def _call_groq(
     groq_client: Groq,
     messages: list[dict],
 ) -> str:
-    """Make a Groq API call with automatic model fallback and return the raw text content."""
+    """Generate workflow JSON: Gemini (native JSON mode) first if configured, else Groq with model fallback."""
+    gemini_text = gemini_json_completion(messages)
+    if gemini_text:
+        return gemini_text
     response = groq_chat_completion(
         client=groq_client,
         model=GROQ_MODEL,
