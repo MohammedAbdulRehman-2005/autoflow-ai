@@ -91,8 +91,18 @@ def build_operation_schema_block(operations: list[str] | None = None) -> str:
 
 
 def build_system_prompt(existing_dsl: dict | None = None, operations: list[str] | None = None) -> str:
-    # Compact JSON serialization reduces system prompt size by ~60% (staying well under Groq's 8,000 TPM limit)
-    appt_example = json.dumps(get_example_dsl_json("appointment"), separators=(",", ":"))
+    # Compact JSON serialization reduces system prompt size by ~60% (staying well under Groq's 8,000 TPM limit).
+    # When existing_dsl is provided, skip the extra appointment example because existing_dsl is already a full example.
+    if existing_dsl:
+        example_section = ""
+    else:
+        appt_example = json.dumps(get_example_dsl_json("appointment"), separators=(",", ":"))
+        example_section = (
+            "══════════════════════════════════════════════════════════════\n"
+            "CANONICAL EXAMPLE WORKFLOW (COMPACT JSON)\n"
+            "══════════════════════════════════════════════════════════════\n\n"
+            f"{appt_example}\n\n"
+        )
     schema_block = build_operation_schema_block(operations)
 
     base_prompt = f"""You are the Workflow Planner for AutoFlow AI X — an AI-native workflow automation platform.
@@ -242,13 +252,7 @@ MANDATORY RULES — VIOLATIONS WILL CAUSE REJECTION
 12. Every action node that can fail MUST have on_failure set to an error handler node ID (never null for critical actions).
     For terminal/final nodes where failure ends the workflow gracefully, on_failure may be null.
 
-══════════════════════════════════════════════════════════════
-CANONICAL EXAMPLE WORKFLOW (COMPACT JSON)
-══════════════════════════════════════════════════════════════
-
-{appt_example}
-
-══════════════════════════════════════════════════════════════
+{example_section}══════════════════════════════════════════════════════════════
 YOUR TASK
 ══════════════════════════════════════════════════════════════
 

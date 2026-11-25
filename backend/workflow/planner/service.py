@@ -446,11 +446,11 @@ def _build_user_message(workflow_name: str, intent: IntentDetails, existing_dsl:
             "Apply ONLY the changes described in the edit request below. "
             "Preserve all existing node IDs exactly as-is — do NOT rename or reorder any node that is not being changed. "
             "Only add, remove, or adjust the nodes/edges that are relevant to the edit.\n\n"
-            f"EXISTING WORKFLOW DSL:\n{json.dumps(existing_dsl, indent=2)}\n\n"
-            f"EDIT REQUEST:\n{json.dumps(intent_dict, indent=2)}"
+            f"EXISTING WORKFLOW DSL:\n{json.dumps(existing_dsl, separators=(',', ':'))}\n\n"
+            f"EDIT REQUEST:\n{json.dumps(intent_dict, separators=(',', ':'))}"
         )
 
     return (
         "Generate a complete AutoFlow DSL JSON for the following automation workflow:\n\n"
-        + json.dumps(intent_dict, indent=2)
+        + json.dumps(intent_dict, separators=(",", ":"))
     )

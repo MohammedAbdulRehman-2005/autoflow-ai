@@ -193,18 +193,32 @@ def _try_gemini_fallback(messages: list[dict[str, Any]]) -> Optional[_FallbackCo
     return None
 
 
+_REASONING_MODEL_PREFIXES = (
+    "openai/gpt-oss",
+    "qwen/",
+    "deepseek",
+)
+
+
+def _is_reasoning_model(model_id: str) -> bool:
+    lower = (model_id or "").lower()
+    return any(p in lower for p in _REASONING_MODEL_PREFIXES)
+
+
 def groq_chat_completion(
     client: Groq,
     messages: list[dict[str, Any]],
     model: Optional[str] = None,
-    max_tokens: int = 4096,
+    max_tokens: int = 2048,
     temperature: float = 0.2,
     response_format: Optional[dict[str, Any]] = None,
 ) -> Any:
     """
     Execute a synchronous Groq chat completion with automatic model fallback,
-    dynamic account model discovery, and JSON-mode compatibility retry.
+    dynamic account model discovery, and zero-sleep failover on 413/429 rate limits.
     """
+    # Disable the Groq SDK's internal 26s+ backoff sleep so 429/413 fails over to the next model immediately
+    fast_client = client.with_options(max_retries=0) if isinstance(client, Groq) else client
     candidates = _build_candidate_models(model)
     last_error: Optional[Exception] = None
     tried: set[str] = set()
@@ -216,20 +230,22 @@ def groq_chat_completion(
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
-        if response_format is not None:
+        # Reasoning models (openai/gpt-oss-*, qwen/*) often fail Groq's strict json_object validator
+        # and burn double TPM quota on retry; omit response_format for them and rely on _extract_json.
+        if response_format is not None and not _is_reasoning_model(candidate_model):
             kwargs["response_format"] = response_format
 
         try:
-            return client.chat.completions.create(**kwargs)
+            return fast_client.chat.completions.create(**kwargs)
         except Exception as exc:
-            if response_format is not None and _is_json_mode_error(exc):
+            if "response_format" in kwargs and _is_json_mode_error(exc):
                 logger.warning(
                     "[Groq] Model '%s' rejected response_format (%s); retrying without response_format.",
                     candidate_model,
                     exc,
                 )
                 kwargs.pop("response_format", None)
-                return client.chat.completions.create(**kwargs)
+                return fast_client.chat.completions.create(**kwargs)
             raise
 
     for candidate in candidates:
