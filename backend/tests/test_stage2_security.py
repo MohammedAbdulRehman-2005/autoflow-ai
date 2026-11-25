@@ -657,3 +657,74 @@ def test_S2_SEC_041_groq_model_deprecation_remap_and_fallback():
     assert resp.choices[0].message.content == '{"ok": true}'
     assert mock_client.chat.completions.create.call_count == 2
 
+
+@pytest.mark.asyncio
+async def test_S2_SEC_042_hubspot_crm_node_registry_schema_and_upsert():
+    """HubSpot CRM plugins are registered in NodeRegistry, pass schema validation without Google Sheets params, and upsert on 409."""
+    from backend.workflow.node_registry import NodeRegistry
+    from backend.workflow.dsl.schema import WorkflowDSL
+    from backend.workflow.validator.checks.schema import check_schema
+    from backend.workflow.engine.executors.hubspot import HubSpotAppendRowExecutor
+
+    assert NodeRegistry.get("hubspot", "append_row") is not None
+    assert NodeRegistry.get("hubspot", "update_row") is not None
+    assert NodeRegistry.get("hubspot", "find_row") is not None
+
+    dsl = WorkflowDSL.model_validate({
+        "id": str(uuid.uuid4()),
+        "name": "HubSpot Lead Sync",
+        "version": 1,
+        "trigger": {"type": "manual", "config": {}},
+        "nodes": [
+            {
+                "id": "trigger_1",
+                "type": "trigger",
+                "service": "scheduler",
+                "operation": "manual_trigger",
+                "label": "Start",
+                "params": {},
+                "on_success": "create_contact",
+            },
+            {
+                "id": "create_contact",
+                "type": "action",
+                "service": "hubspot",
+                "operation": "append_row",
+                "label": "Create HubSpot Contact",
+                "params": {
+                    "object_type": "contacts",
+                    "row": {"email": "ada@example.com", "firstname": "Ada"},
+                },
+            },
+        ],
+        "edges": [{"source_id": "trigger_1", "target_id": "create_contact"}],
+    })
+    validation = check_schema(dsl)
+    assert len(validation.errors) == 0
+
+    ctx = ExecutionContext(
+        run_id=uuid.uuid4(),
+        trigger_payload={},
+        workflow_variables={},
+        workflow_id=uuid.uuid4(),
+    )
+    ctx.set_secret("hubspot", {"access_token": "pat-na1-test-token"})
+
+    mock_conflict = MagicMock()
+    mock_conflict.status_code = 409
+    mock_conflict.text = "Contact already exists. Existing ID: 98765"
+
+    mock_patch = MagicMock()
+    mock_patch.status_code = 200
+    mock_patch.is_error = False
+    mock_patch.json.return_value = {"id": "98765", "properties": {"email": "ada@example.com", "firstname": "Ada"}}
+
+    with patch("backend.workflow.engine.executors.hubspot._hubspot_request", new_callable=AsyncMock) as mock_req:
+        mock_req.side_effect = [mock_conflict, mock_patch]
+        executor = HubSpotAppendRowExecutor()
+        res = await executor.execute(dsl.nodes[1], ctx, dsl.nodes[1].params)
+        assert res.success is True
+        assert res.output["id"] == "98765"
+        assert res.output["status"] == "updated_existing"
+
+

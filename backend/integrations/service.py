@@ -94,10 +94,12 @@ PROVIDER_CONFIG: dict[str, dict] = {
         "auth_url": "https://app.hubspot.com/oauth/authorize",
         "token_url": "https://api.hubapi.com/oauth/v1/token",
         "scopes": [
-            "contacts",
             "crm.objects.contacts.read",
             "crm.objects.contacts.write",
             "crm.objects.deals.read",
+            "crm.objects.deals.write",
+            "crm.objects.companies.read",
+            "crm.objects.companies.write",
         ],
         "client_id_env": "HUBSPOT_CLIENT_ID",
         "client_secret_env": "HUBSPOT_CLIENT_SECRET",

@@ -185,6 +185,11 @@ def _register_all() -> None:
         GoogleCalendarCreateEventExecutor,
         GoogleCalendarListEventsExecutor,
     )
+    from backend.workflow.engine.executors.hubspot import (
+        HubSpotAppendRowExecutor,
+        HubSpotFindRowExecutor,
+        HubSpotUpdateRowExecutor,
+    )
 
     # â”€â”€ scheduler / cron â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     NodeRegistry.register(NodePlugin(
@@ -710,6 +715,167 @@ def _register_all() -> None:
             },
         },
         default_params={"max_results": 10},
+    ))
+
+    # ── hubspot / append_row (Create / Upsert CRM Contact, Deal, or Company) ──
+    NodeRegistry.register(NodePlugin(
+        service="hubspot",
+        operation="append_row",
+        node_type="action",
+        label="HubSpot: Create CRM Record",
+        icon="UserPlus",
+        executor_class=HubSpotAppendRowExecutor,
+        category="data",
+        tags=["hubspot", "crm", "contact", "deal", "company", "lead", "create", "upsert"],
+        recommended_after=["groq.llm_extract", "groq.llm_classify", "builtin.condition_branch"],
+        required_scopes=["crm.objects.contacts.write", "crm.objects.deals.write"],
+        doc_url="https://developers.hubspot.com/docs/api/crm/contacts",
+        estimated_latency="medium",
+        parameter_schema={
+            "type": "object",
+            "required": ["row"],
+            "properties": {
+                "object_type": {
+                    "type": "string",
+                    "default": "contacts",
+                    "enum": ["contacts", "deals", "companies"],
+                    "description": "HubSpot CRM object type to create.",
+                    "ui": {"widget": "select", "helpText": "Choose contacts, deals, or companies."},
+                },
+                "row": {
+                    "type": "object",
+                    "description": "Dictionary of HubSpot CRM properties (e.g. email, firstname, lastname, phone, company, dealname, amount).",
+                    "ui": {
+                        "widget": "json",
+                        "placeholder": '{"email": "lead@company.com", "firstname": "Ada", "lastname": "Lovelace", "company": "Analytical Engines"}',
+                        "helpText": "Supports template variables like {{extract_lead.output.email}}.",
+                    },
+                },
+            },
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "id":          {"type": "string"},
+                "object_type": {"type": "string"},
+                "properties":  {"type": "object"},
+                "status":      {"type": "string"},
+            },
+            "required": ["id", "object_type", "status"],
+        },
+        default_params={
+            "object_type": "contacts",
+            "row": {"email": "", "firstname": "", "lastname": "", "company": ""},
+        },
+    ))
+
+    # ── hubspot / update_row (Update CRM Contact, Deal, or Company) ───────────
+    NodeRegistry.register(NodePlugin(
+        service="hubspot",
+        operation="update_row",
+        node_type="action",
+        label="HubSpot: Update CRM Record",
+        icon="UserCheck",
+        executor_class=HubSpotUpdateRowExecutor,
+        category="data",
+        tags=["hubspot", "crm", "contact", "deal", "company", "update"],
+        recommended_after=["hubspot.find_row", "hubspot.append_row", "builtin.condition_branch"],
+        required_scopes=["crm.objects.contacts.write", "crm.objects.deals.write"],
+        doc_url="https://developers.hubspot.com/docs/api/crm/contacts",
+        estimated_latency="medium",
+        parameter_schema={
+            "type": "object",
+            "required": ["record_id", "row"],
+            "properties": {
+                "object_type": {
+                    "type": "string",
+                    "default": "contacts",
+                    "enum": ["contacts", "deals", "companies"],
+                    "description": "HubSpot CRM object type to update.",
+                    "ui": {"widget": "select"},
+                },
+                "record_id": {
+                    "type": "string",
+                    "description": "HubSpot record ID (or contact email address).",
+                    "ui": {"widget": "text", "placeholder": "{{find_contact.output.first_id}} or lead@company.com"},
+                },
+                "row": {
+                    "type": "object",
+                    "description": "Properties to update on the record.",
+                    "ui": {"widget": "json", "placeholder": '{"lifecyclestage": "opportunity"}'},
+                },
+            },
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "id":          {"type": "string"},
+                "object_type": {"type": "string"},
+                "properties":  {"type": "object"},
+                "status":      {"type": "string"},
+            },
+            "required": ["id", "object_type", "status"],
+        },
+        default_params={"object_type": "contacts", "record_id": "", "row": {}},
+    ))
+
+    # ── hubspot / find_row (Search CRM Contacts, Deals, or Companies) ─────────
+    NodeRegistry.register(NodePlugin(
+        service="hubspot",
+        operation="find_row",
+        node_type="action",
+        label="HubSpot: Find CRM Record",
+        icon="Search",
+        executor_class=HubSpotFindRowExecutor,
+        category="data",
+        tags=["hubspot", "crm", "search", "find", "contact", "deal", "lookup"],
+        required_scopes=["crm.objects.contacts.read", "crm.objects.deals.read"],
+        doc_url="https://developers.hubspot.com/docs/api/crm/search",
+        estimated_latency="medium",
+        parameter_schema={
+            "type": "object",
+            "required": ["filter_value"],
+            "properties": {
+                "object_type": {
+                    "type": "string",
+                    "default": "contacts",
+                    "enum": ["contacts", "deals", "companies"],
+                    "description": "HubSpot CRM object type to search.",
+                    "ui": {"widget": "select"},
+                },
+                "filter_property": {
+                    "type": "string",
+                    "default": "email",
+                    "description": "HubSpot property name to filter on (e.g. 'email', 'company', 'dealname').",
+                    "ui": {"widget": "text", "placeholder": "email"},
+                },
+                "filter_value": {
+                    "type": "string",
+                    "description": "Exact value to match.",
+                    "ui": {"widget": "text", "placeholder": "customer@company.com"},
+                },
+                "properties": {
+                    "type": "array",
+                    "description": "List of CRM properties to return.",
+                },
+            },
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "results":          {"type": "array"},
+                "count":            {"type": "integer"},
+                "total":            {"type": "integer"},
+                "first_id":         {"type": "string"},
+                "first_properties": {"type": "object"},
+            },
+            "required": ["results", "count", "total"],
+        },
+        default_params={
+            "object_type": "contacts",
+            "filter_property": "email",
+            "filter_value": "",
+        },
     ))
 
 

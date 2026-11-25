@@ -11,7 +11,10 @@ The prompt is the most critical part of the planner. It must:
 import json
 from backend.workflow.dsl.examples import get_example_dsl_json
 # Single source of truth — same dict the validator uses
-from backend.workflow.validator.checks.schema import OPERATION_REQUIRED_PARAMS
+from backend.workflow.validator.checks.schema import (
+    OPERATION_REQUIRED_PARAMS,
+    SERVICE_OPERATION_REQUIRED_PARAMS,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -23,6 +26,9 @@ _PARAM_HINTS: dict[str, dict[str, str]] = {
     "send_email":       {"to": "email address or {{template}}", "body": "plain text or HTML"},
     "read_rows":        {"spreadsheet_id": "Google Sheets ID from the URL", "range": "e.g. 'Sheet1!A:E'"},
     "append_row":       {"spreadsheet_id": "Google Sheets ID from the URL", "range": "e.g. 'Sheet1!A:D'"},
+    "hubspot.append_row": {"row": "dict of HubSpot properties e.g. {'email': '...', 'firstname': '...', 'lastname': '...', 'company': '...'}", "object_type": "'contacts' (default) | 'deals' | 'companies'"},
+    "hubspot.update_row": {"record_id": "HubSpot record ID or contact email", "row": "dict of HubSpot properties to update", "object_type": "'contacts' | 'deals' | 'companies'"},
+    "hubspot.find_row":   {"filter_value": "value to search for (e.g. email)", "filter_property": "property name (default: 'email')", "object_type": "'contacts' | 'deals' | 'companies'"},
     "llm_generate":     {"user_prompt": "use {{node_id.output.field}} to inject upstream data"},
     "condition_branch": {"condition": "boolean expression, e.g. '{{node_id.output.count > 0}}'"},
     "for_each":         {"items": "reference to an array from a previous node, e.g. '{{read_rows.output.rows}}'"},
@@ -49,11 +55,15 @@ def build_operation_schema_block(operations: list[str] | None = None) -> str:
         "──────────────────────────────────────────────────────────────",
     ]
 
-    items = (
+    items = dict(
         {k: v for k, v in OPERATION_REQUIRED_PARAMS.items() if k in operations}
         if operations
         else OPERATION_REQUIRED_PARAMS
     )
+    for svc_op_key, svc_spec in SERVICE_OPERATION_REQUIRED_PARAMS.items():
+        _, op_name = svc_op_key.split(".", 1)
+        if not operations or op_name in operations or svc_op_key in operations:
+            items[svc_op_key] = svc_spec
 
     for op_key, spec in items.items():
         required = spec.get("required", [])

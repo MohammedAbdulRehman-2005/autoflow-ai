@@ -185,6 +185,118 @@ def connect_stripe(
 
 
 # ---------------------------------------------------------------------------
+# HubSpot Private App Token Connect & Verification
+# ---------------------------------------------------------------------------
+
+class HubSpotTokenConnectRequest(BaseModel):
+    access_token: str
+    portal_id: str | None = None
+    verify: bool = True
+
+
+@router.post("/hubspot/token")
+async def connect_hubspot_token(
+    body: HubSpotTokenConnectRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Connect HubSpot CRM using a Private App Access Token (pat-na1-... or pat-eu1-...).
+    Optionally verifies the token against the HubSpot CRM v3 Contacts endpoint.
+    """
+    import httpx
+
+    token = (body.access_token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="HubSpot Private App Access Token is required.")
+
+    if body.verify:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    "https://api.hubapi.com/crm/v3/objects/contacts",
+                    params={"limit": 1},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if resp.status_code in (401, 403):
+                raise HTTPException(
+                    status_code=400,
+                    detail="HubSpot rejected the access token (401/403). Ensure your Private App token is valid and has 'crm.objects.contacts.read/write' scopes.",
+                )
+            resp.raise_for_status()
+        except HTTPException:
+            raise
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not verify token against HubSpot API: {exc}",
+            )
+
+    credentials = {
+        "access_token": token,
+        "auth_type": "private_app",
+        "portal_id": (body.portal_id or "").strip(),
+    }
+    integration = save_apikey_integration(
+        user_id=current_user.id,
+        service="hubspot",
+        credentials=credentials,
+        db=db,
+    )
+    return {
+        "status": "connected",
+        "service": "hubspot",
+        "auth_type": "private_app",
+        "integration_id": str(integration.id),
+    }
+
+
+@router.get("/hubspot/test")
+async def test_hubspot_connection(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Verify the current user's active HubSpot CRM connection against HubSpot CRM v3 API."""
+    import httpx
+    from backend.workflow.engine.context import ExecutionContext
+    from backend.workflow.engine.executors.hubspot import _get_hubspot_token
+
+    ctx = ExecutionContext(
+        run_id=current_user.id,
+        trigger_payload={},
+        workflow_variables={},
+        db=db,
+        user_id=current_user.id,
+        workflow_id=current_user.id,
+    )
+    token = _get_hubspot_token(ctx)
+    if not token:
+        raise HTTPException(status_code=404, detail="HubSpot CRM is not connected.")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.hubapi.com/crm/v3/objects/contacts",
+                params={"limit": 1},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code in (401, 403):
+            raise HTTPException(status_code=401, detail="HubSpot credentials expired or lacked required CRM scopes.")
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "status": "ok",
+            "connected": True,
+            "contacts_accessible": True,
+            "sample_count": len(data.get("results", [])),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"HubSpot connectivity check failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Disconnect
 # ---------------------------------------------------------------------------
 

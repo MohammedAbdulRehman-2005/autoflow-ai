@@ -196,6 +196,135 @@ function StripeModal({ onClose, onSuccess }) {
   );
 }
 
+// ── HubSpot CRM Modal (Private App Access Token or OAuth 2.0) ────────────────
+function HubSpotModal({ onClose, onSuccess, onOAuthConnect }) {
+  const [accessToken, setAccessToken] = useState('');
+  const [portalId, setPortalId] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const cleaned = accessToken.trim();
+    if (!cleaned) {
+      setError('Please enter your HubSpot Private App Access Token (pat-na1-... or pat-eu1-...).');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await api.post('/api/v1/integrations/hubspot/token', {
+        access_token: cleaned,
+        portal_id: portalId.trim() || null,
+        verify: true,
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-slate-900 border border-orange-500/20 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+      >
+        <div className="flex justify-between items-center mb-5">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🟠</span>
+            <h3 className="text-white font-bold text-sm">Connect HubSpot CRM</h3>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white cursor-pointer"><X size={16} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs text-slate-400 font-medium mb-1.5 block">
+              Private App Access Token <span className="text-rose-400">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type={showToken ? 'text' : 'password'}
+                value={accessToken}
+                onChange={e => setAccessToken(e.target.value)}
+                placeholder="pat-na1-... or pat-eu1-..."
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:border-orange-500/50 pr-10"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white cursor-pointer"
+              >
+                {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1">
+              In HubSpot: Settings → Integrations → Private Apps → Create private app (enable CRM Contacts & Deals read/write scopes).
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-400 font-medium mb-1.5 block">
+              Hub ID / Portal ID <span className="text-slate-600">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={portalId}
+              onChange={e => setPortalId(e.target.value)}
+              placeholder="e.g. 48291034"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:border-orange-500/50"
+            />
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">
+              <AlertCircle size={12} className="shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+          >
+            {loading ? <><Loader2 size={13} className="animate-spin" /> Verifying with HubSpot...</> : <><Key size={13} /> Connect with Private App Token</>}
+          </button>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-white/10"></div>
+            <span className="flex-shrink mx-3 text-[10px] text-slate-500 uppercase">or OAuth 2.0</span>
+            <div className="flex-grow border-t border-white/10"></div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOAuthConnect}
+            className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-xs font-semibold cursor-pointer transition-all flex items-center justify-center gap-2"
+          >
+            <ExternalLink size={12} />
+            Authorize via HubSpot OAuth App
+          </button>
+        </form>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ── Integration Card ─────────────────────────────────────────────────────────
 function IntegrationCard({ integration, connectedServices, onConnect, onDisconnect, isLoading }) {
   const isConnected = integration.services.some(s => connectedServices.has(s));
@@ -283,6 +412,7 @@ export default function SettingsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [toast, setToast] = useState(null);
   const [showStripeModal, setShowStripeModal] = useState(false);
+  const [showHubSpotModal, setShowHubSpotModal] = useState(false);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -327,13 +457,7 @@ export default function SettingsPage() {
 
   useEffect(() => { loadIntegrations(); }, []);
 
-  const handleConnect = async (integration) => {
-    if (integration.type === 'apikey') {
-      if (integration.id === 'stripe') setShowStripeModal(true);
-      return;
-    }
-
-    // OAuth — redirect to backend
+  const startOAuthConnect = async (integration) => {
     setLoadingId(integration.id);
     const token = tokenStore.get();
     if (!token) {
@@ -341,7 +465,7 @@ export default function SettingsPage() {
       setLoadingId(null);
       return;
     }
-    
+
     try {
       const res = await api.get(`/api/v1/integrations/${integration.id}/connect`);
       if (res?.url) {
@@ -353,6 +477,18 @@ export default function SettingsPage() {
       showToast(`Failed to initiate ${integration.label} connection: ${e.message}`, 'error');
       setLoadingId(null);
     }
+  };
+
+  const handleConnect = async (integration) => {
+    if (integration.type === 'apikey') {
+      if (integration.id === 'stripe') setShowStripeModal(true);
+      return;
+    }
+    if (integration.id === 'hubspot') {
+      setShowHubSpotModal(true);
+      return;
+    }
+    await startOAuthConnect(integration);
   };
 
   const handleDisconnect = async (service) => {
@@ -448,6 +584,25 @@ export default function SettingsPage() {
               setShowStripeModal(false);
               showToast('✅ Stripe connected successfully!', 'success');
               loadIntegrations();
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* HubSpot Modal */}
+      <AnimatePresence>
+        {showHubSpotModal && (
+          <HubSpotModal
+            onClose={() => setShowHubSpotModal(false)}
+            onSuccess={() => {
+              setShowHubSpotModal(false);
+              showToast('✅ HubSpot CRM connected and verified!', 'success');
+              loadIntegrations();
+            }}
+            onOAuthConnect={() => {
+              setShowHubSpotModal(false);
+              const hs = INTEGRATIONS.find(i => i.id === 'hubspot');
+              if (hs) startOAuthConnect(hs);
             }}
           />
         )}

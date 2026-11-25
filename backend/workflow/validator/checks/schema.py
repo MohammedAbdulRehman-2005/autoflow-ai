@@ -130,6 +130,31 @@ OPERATION_REQUIRED_PARAMS: dict[str, dict] = {
     OperationType.manual_trigger.value: {"required": [], "allowed": ["description"]},
 }
 
+# Service-specific parameter overrides where operations share names across services
+# (e.g., HubSpot CRM vs Google Sheets vs Notion for append_row/update_row/find_row).
+SERVICE_OPERATION_REQUIRED_PARAMS: dict[str, dict] = {
+    "hubspot.append_row": {
+        "required": ["row"],
+        "allowed":  ["row", "object_type", "properties"],
+    },
+    "hubspot.update_row": {
+        "required": ["record_id", "row"],
+        "allowed":  ["record_id", "id", "row", "object_type", "properties"],
+    },
+    "hubspot.find_row": {
+        "required": ["filter_value"],
+        "allowed":  ["filter_property", "filter_value", "object_type", "properties"],
+    },
+    "notion.append_row": {
+        "required": ["row"],
+        "allowed":  ["database_id", "page_id", "row", "title", "content"],
+    },
+    "google_drive.append_row": {
+        "required": [],
+        "allowed":  ["folder_name", "parent_id", "file_name", "content", "row"],
+    },
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BUG #2: Slack placeholder channel patterns
 # The LLM frequently generates channel names like 'all-xyz', 'your-channel',
@@ -209,7 +234,8 @@ def check_schema(dsl: WorkflowDSL) -> ValidationResult:
             continue  # Skip disabled nodes
 
         op_key = node.operation.value
-        spec = OPERATION_REQUIRED_PARAMS.get(op_key, {})
+        svc_op_key = f"{node.service.value}.{op_key}"
+        spec = SERVICE_OPERATION_REQUIRED_PARAMS.get(svc_op_key) or OPERATION_REQUIRED_PARAMS.get(op_key, {})
         required_fields: list[str] = spec.get("required", [])
 
         for field_name in required_fields:

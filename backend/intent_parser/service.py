@@ -25,6 +25,9 @@ def parse_user_intent(prompt: str):
     if "calendar" in prompt:
         result["apps"].append("google_calendar")
 
+    if any(k in prompt for k in ("hubspot", "crm", "contact", "deal", "lead")):
+        result["apps"].append("hubspot")
+
     return result
 
 
