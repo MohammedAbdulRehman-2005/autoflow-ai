@@ -51,7 +51,7 @@ settings = get_settings()
 
 MAX_RETRIES = 2          # Max additional attempts after the first failure
 GROQ_MODEL  = DEFAULT_GROQ_MODEL
-GROQ_MAX_TOKENS = 4096
+GROQ_MAX_TOKENS = 2000   # Fits comfortably within Groq free-tier 8,000 TPM budget
 GROQ_TEMPERATURE = 0.2   # Low temperature = more deterministic, fewer hallucinations
 
 

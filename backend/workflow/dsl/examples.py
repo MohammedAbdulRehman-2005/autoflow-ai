@@ -57,7 +57,7 @@ APPOINTMENT_REMINDER_DSL = WorkflowDSL(
             operation=OperationType.read_rows,
             label="Read Today's Appointments",
             params={
-                "spreadsheet_id": "{{env.APPOINTMENTS_SHEET_ID}}",
+                "spreadsheet_id": "appointments_sheet_id",
                 "range": "Sheet1!A:E",
                 "filter": {
                     "column": "appointment_date",
@@ -106,8 +106,8 @@ APPOINTMENT_REMINDER_DSL = WorkflowDSL(
                     "This is a reminder that you have an appointment scheduled for "
                     "{{patient.appointment_date}} at {{patient.appointment_time}}.\n\n"
                     "Please arrive 10 minutes early. If you need to reschedule, "
-                    "please call us at {{env.CLINIC_PHONE}}.\n\n"
-                    "Best regards,\n{{env.CLINIC_NAME}}"
+                    "please reply to this email.\n\n"
+                    "Best regards,\nAutoFlow Clinic"
                 ),
             },
             on_success=None,
@@ -173,7 +173,7 @@ WEEKLY_REPORT_DSL = WorkflowDSL(
             operation=OperationType.read_rows,
             label="Fetch Weekly KPIs",
             params={
-                "spreadsheet_id": "{{env.KPI_SHEET_ID}}",
+                "spreadsheet_id": "kpi_sheet_id",
                 "range": "KPIs!A1:G50",
                 "filter": {
                     "column": "week",
@@ -215,8 +215,8 @@ WEEKLY_REPORT_DSL = WorkflowDSL(
             operation=OperationType.send_email,
             label="Email Report to Management",
             params={
-                "to": "{{env.MANAGEMENT_EMAIL}}",
-                "cc": "{{env.MANAGEMENT_CC_LIST}}",
+                "to": "management@company.com",
+                "cc": "leadership@company.com",
                 "subject": "📊 Weekly Business Report — Week {{context.current_week_number}}",
                 "body": (
                     "Dear Team,\n\n"
@@ -236,13 +236,13 @@ WEEKLY_REPORT_DSL = WorkflowDSL(
             operation=OperationType.append_row,
             label="Log Run to Audit Sheet",
             params={
-                "spreadsheet_id": "{{env.AUDIT_SHEET_ID}}",
+                "spreadsheet_id": "audit_sheet_id",
                 "range": "RunLog!A:D",
                 "row": {
                     "date": "{{context.today}}",
                     "workflow": "Weekly Report",
                     "status": "success",
-                    "recipients": "{{env.MANAGEMENT_EMAIL}}",
+                    "recipients": "management@company.com",
                 },
             },
         ),
@@ -253,7 +253,7 @@ WEEKLY_REPORT_DSL = WorkflowDSL(
             operation=OperationType.send_email,
             label="Notify Admin of Error",
             params={
-                "to": "{{env.ADMIN_EMAIL}}",
+                "to": "admin@company.com",
                 "subject": "⚠️ AutoFlow Error: Weekly Report Failed",
                 "body": "The Weekly Business Report workflow failed.\n\nError: {{context.error_message}}",
             },

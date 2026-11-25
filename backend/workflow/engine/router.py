@@ -164,6 +164,32 @@ async def trigger_run(
             },
         )
 
+    # Seed default sample enquiry payload for manual Studio test runs when none is supplied
+    effective_payload = dict(payload.trigger_payload or {})
+    if not effective_payload:
+        sample_enquiry = (
+            "Hello, my name is Rahul Sharma (rahul.sharma@enterprise-demo.com) from Apex Global. "
+            "We are looking to deploy an AI workflow automation solution for 150 seats with "
+            "Google Sheets, Gmail, and HubSpot CRM integration this quarter. Very high interest."
+        )
+        effective_payload = {
+            "message": sample_enquiry,
+            "enquiry": sample_enquiry,
+            "customer_message": sample_enquiry,
+            "text": sample_enquiry,
+            "body": sample_enquiry,
+            "content": sample_enquiry,
+            "inquiry": sample_enquiry,
+            "name": "Rahul Sharma",
+            "customer_name": "Rahul Sharma",
+            "email": "rahul.sharma@enterprise-demo.com",
+            "customer_email": "rahul.sharma@enterprise-demo.com",
+            "company": "Apex Global",
+            "requirements": "AI workflow automation solution for 150 seats with Google Sheets, Gmail, and HubSpot CRM",
+            "interest_level": "high",
+            "priority": "high",
+        }
+
     # Create the run record
     run_id = uuid.uuid4()
     run = WorkflowRun(
@@ -172,7 +198,7 @@ async def trigger_run(
         user_id=current_user.id,
         status=RunStatus.pending.value,
         trigger_type="manual",
-        trigger_payload=payload.trigger_payload,
+        trigger_payload=effective_payload,
         attempt_number=1,
         max_attempts=3,
     )
@@ -186,7 +212,7 @@ async def trigger_run(
         _run_workflow_background,
         run_id=run_id,
         dsl=dsl,
-        trigger_payload=payload.trigger_payload,
+        trigger_payload=effective_payload,
         workflow_id=workflow.id,
         user_id=current_user.id,
     )

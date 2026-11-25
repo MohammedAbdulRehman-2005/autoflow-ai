@@ -91,8 +91,8 @@ def build_operation_schema_block(operations: list[str] | None = None) -> str:
 
 
 def build_system_prompt(existing_dsl: dict | None = None, operations: list[str] | None = None) -> str:
-    appt_example = json.dumps(get_example_dsl_json("appointment"), indent=2)
-    report_example = json.dumps(get_example_dsl_json("weekly_report"), indent=2)
+    # Compact JSON serialization reduces system prompt size by ~60% (staying well under Groq's 8,000 TPM limit)
+    appt_example = json.dumps(get_example_dsl_json("appointment"), separators=(",", ":"))
     schema_block = build_operation_schema_block(operations)
 
     base_prompt = f"""You are the Workflow Planner for AutoFlow AI X — an AI-native workflow automation platform.
@@ -196,7 +196,6 @@ Use these patterns inside any param string value:
   {{{{context.tomorrow_date}}}}    → Tomorrow's date
   {{{{context.current_week_number}}}} → ISO week number
   {{{{context.error_message}}}}    → Error details (use in on_failure nodes)
-  {{{{env.VAR_NAME}}}}             → Environment variable from .env
   {{{{vars.variable_name}}}}       → Workflow-level variable
 
 ──────────────────────────────────────────────────────────────
@@ -227,14 +226,16 @@ MANDATORY RULES — VIOLATIONS WILL CAUSE REJECTION
 5. Every edge's source_id and target_id must exist in the nodes array.
 6. Condition nodes MUST have exactly 2 outbound edges.
 7. Always include an error handler node (type: "action", service: "builtin" or "gmail") for critical failures.
-8. Use {{{{env.VAR}}}} for all sensitive values (API keys, sheet IDs, email addresses).
-9. The trigger node's service must be "scheduler" for schedule triggers.
+8. NEVER use {{{{env.VAR}}}} — always use concrete default strings (e.g. "leads_sheet_01", "sales@company.com") or {{{{vars.variable_name}}}}.
+9. The trigger node's service must be "scheduler" for schedule, manual, or webhook triggers.
 10. Do not invent services or operations not listed in the spec above.
 11. ALWAYS fill ALL required params — NEVER leave them empty or missing:
     - llm_generate: MUST have both "system_prompt" and "user_prompt" as non-empty strings.
       Example: {{"model": "openai/gpt-oss-120b", "system_prompt": "You are a helpful assistant.",
                  "user_prompt": "Summarize the following emails: {{{{read_emails.output.emails}}}}",
                  "max_tokens": 500, "temperature": 0.7}}
+    - llm_extract: MUST have "text" (string) and "fields" (list of strings, e.g. ["name", "email", "requirements", "interest_level"]).
+    - llm_classify: MUST have "text" (string) and "labels" (list of strings, e.g. ["high", "medium", "low"]).
     - send_email: MUST have "to", "subject", and "body" as non-empty strings.
     - send_sms: MUST have "to" and "message" as non-empty strings.
     - http_request: MUST have "url" and "method" as non-empty strings.
@@ -242,16 +243,10 @@ MANDATORY RULES — VIOLATIONS WILL CAUSE REJECTION
     For terminal/final nodes where failure ends the workflow gracefully, on_failure may be null.
 
 ══════════════════════════════════════════════════════════════
-EXAMPLE 1: APPOINTMENT REMINDER WORKFLOW
+CANONICAL EXAMPLE WORKFLOW (COMPACT JSON)
 ══════════════════════════════════════════════════════════════
 
 {appt_example}
-
-══════════════════════════════════════════════════════════════
-EXAMPLE 2: WEEKLY BUSINESS REPORT WORKFLOW
-══════════════════════════════════════════════════════════════
-
-{report_example}
 
 ══════════════════════════════════════════════════════════════
 YOUR TASK

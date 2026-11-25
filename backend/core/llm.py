@@ -121,6 +121,11 @@ def _is_model_unavailable_error(exc: Exception) -> bool:
             "model_decommissioned",
             "not found",
             "404",
+            "413",
+            "429",
+            "rate_limit_exceeded",
+            "request too large",
+            "tokens per minute",
         )
     )
 
